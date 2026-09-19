@@ -104,11 +104,13 @@ def get_alarm_wav():
     return _ALARM_WAV
 
 
-def play_alert_sound():
+def play_alert_sound(custom_wav=None):
     """Best-effort local alert sound. Never raises and never blocks -- a
     missing audio backend shouldn't take down (or stall) the monitor."""
     try:
-        wav = get_alarm_wav()
+        # A sound recorded in the dashboard wins; otherwise fall back to
+        # the synthesized alarm so there is always *something* audible.
+        wav = str(custom_wav) if custom_wav and Path(custom_wav).exists() else get_alarm_wav()
 
         if sys.platform == "win32":
             import winsound  # type: ignore
@@ -151,3 +153,77 @@ def send_telegram_alert(bot_token: str, chat_id: str, message: str,
                 )
     except Exception as e:
         print(f"[alert] Telegram notification failed: {e}", file=sys.stderr)
+
+
+def send_telegram_video(bot_token: str, chat_id: str, video_path: str,
+                        caption: str = "") -> bool:
+    """Send a recorded clip to Telegram. Never raises; returns success.
+
+    Telegram caps bot uploads at 50MB -- a long clip can exceed that, so the
+    size is checked up front rather than failing halfway through an upload.
+    """
+    try:
+        import requests
+
+        if not (bot_token and chat_id):
+            return False
+        path = Path(video_path)
+        if not path.exists():
+            print(f"[alert] clip missing, not sending: {video_path}", file=sys.stderr)
+            return False
+
+        size_mb = path.stat().st_size / 1e6
+        if size_mb > 50:
+            print(f"[alert] clip is {size_mb:.0f}MB, over Telegram's 50MB bot "
+                  "limit -- sending a message instead", file=sys.stderr)
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                data={"chat_id": chat_id,
+                      "text": f"{caption} (clip too large to send: {size_mb:.0f}MB)"},
+                timeout=10)
+            return False
+
+        with open(path, "rb") as f:
+            r = requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendVideo",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"video": f},
+                timeout=120,
+            )
+        if not r.ok:
+            print(f"[alert] Telegram sendVideo failed: {r.status_code} {r.text[:200]}",
+                  file=sys.stderr)
+        return r.ok
+    except Exception as e:
+        print(f"[alert] Telegram video send failed: {e}", file=sys.stderr)
+        return False
+
+
+def telegram_check(bot_token: str, chat_id: str) -> tuple:
+    """Validate credentials for the dashboard's 'Test connection' button.
+
+    Returns (ok, message) so the UI can show precisely what went wrong
+    instead of a generic failure.
+    """
+    try:
+        import requests
+
+        if not bot_token:
+            return False, "No bot token set."
+        r = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe", timeout=10)
+        if not r.ok:
+            return False, f"Token rejected by Telegram (HTTP {r.status_code})."
+        name = r.json().get("result", {}).get("username", "?")
+        if not chat_id:
+            return False, f"Bot @{name} is valid, but no chat id is set."
+
+        r2 = requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            data={"chat_id": chat_id, "text": "Dog couch monitor: test message."},
+            timeout=10)
+        if not r2.ok:
+            return False, (f"Bot @{name} is valid but sending to chat {chat_id} failed "
+                           f"(HTTP {r2.status_code}). Have you messaged the bot first?")
+        return True, f"Sent a test message via @{name}."
+    except Exception as e:
+        return False, f"Could not reach Telegram: {e}"

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dog Couch Monitor</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+  </head>
+  <body data-csrf="{{ csrf_token }}">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" id="live-dot"></span>
+        <strong>Dog Free Couch</strong>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="live">Live</button>
+        <button class="tab" data-tab="events">Events</button>
+        <button class="tab" data-tab="sound">Sound</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button class="ghost" type="submit">Sign out</button>
+      </form>
+    </header>
+
+    <main>
+      <!-- ================= LIVE ================= -->
+      <section id="tab-live" class="panel active">
+        <div class="live-grid">
+          <div class="video-wrap">
+            <img id="stream" src="/stream.mjpg" alt="Live camera view" />
+            <div id="stream-badge" class="badge hidden">DOG ON COUCH</div>
+          </div>
+          <aside class="side">
+            <div class="stat-row">
+              <div class="stat">
+                <span class="k">Status</span
+                ><span class="v" id="s-state">&mdash;</span>
+              </div>
+              <div class="stat">
+                <span class="k">FPS</span
+                ><span class="v" id="s-fps">&mdash;</span>
+              </div>
+            </div>
+            <div class="stat-row">
+              <div class="stat">
+                <span class="k">Dogs in frame</span
+                ><span class="v" id="s-dogs">0</span>
+              </div>
+              <div class="stat">
+                <span class="k">People</span
+                ><span class="v" id="s-people">0</span>
+              </div>
+            </div>
+            <div class="stat-row">
+              <div class="stat">
+                <span class="k">Alerts today</span
+                ><span class="v" id="s-today">0</span>
+              </div>
+              <div class="stat">
+                <span class="k">Alerts total</span
+                ><span class="v" id="s-total">0</span>
+              </div>
+            </div>
+            <div class="stat-row">
+              <div class="stat wide">
+                <span class="k">Longest session</span
+                ><span class="v" id="s-longest">&mdash;</span>
+              </div>
+            </div>
+            <div id="s-error" class="alert-error hidden"></div>
+            <button id="btn-test-sound" class="secondary">
+              Test alarm on host
+            </button>
+            <p class="hint">
+              Plays through the computer running the monitor, not this browser.
+            </p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ================= EVENTS ================= -->
+      <section id="tab-events" class="panel">
+        <div class="events-head">
+          <h2>Events</h2>
+          <label class="check"
+            ><input type="checkbox" id="only-alerts" checked /> Alerts
+            only</label
+          >
+        </div>
+        <div id="events-list" class="events-list">
+          <p class="muted">Loading&hellip;</p>
+        </div>
+      </section>
+
+      <!-- ================= SOUND ================= -->
+      <section id="tab-sound" class="panel">
+        <h2>Alert sound</h2>
+        <p class="muted">
+          Record what the dog should hear. Your voice tends to work better than
+          a tone &mdash; they already know it.
+        </p>
+
+        <div class="recorder card">
+          <div class="rec-controls">
+            <button id="btn-rec" class="record">Record</button>
+            <span id="rec-time" class="rec-time">0.0s</span>
+            <span id="rec-hint" class="hint">Needs mic permission</span>
+          </div>
+          <div id="rec-preview" class="hidden">
+            <audio id="rec-audio" controls></audio>
+            <input
+              type="text"
+              id="rec-label"
+              placeholder="Name this sound"
+              maxlength="40"
+            />
+            <button id="btn-save-rec">Save &amp; use</button>
+            <button id="btn-discard" class="ghost">Discard</button>
+          </div>
+        </div>
+
+        <h3>Library</h3>
+        <div id="sounds-list" class="sounds-list">
+          <p class="muted">Loading&hellip;</p>
+        </div>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section id="tab-settings" class="panel">
+        <h2>Settings</h2>
+
+        <div class="card">
+          <h3>Telegram</h3>
+          <p class="muted">
+            Sends a photo when the dog gets on, and the video clip once it is
+            recorded. The token is stored on the host only &mdash; it is never
+            sent back to this page and never written to config.yaml.
+          </p>
+          <label class="check"
+            ><input type="checkbox" id="tg-enabled" /> Enabled</label
+          >
+          <label>Bot token <span class="hint" id="tg-token-hint"></span></label>
+          <input
+            type="password"
+            id="tg-token"
+            placeholder="Leave blank to keep current token"
+          />
+          <label>Chat id</label>
+          <input type="text" id="tg-chat" placeholder="123456789" />
+          <label class="check"
+            ><input type="checkbox" id="tg-photo" checked /> Send
+            snapshot</label
+          >
+          <label class="check"
+            ><input type="checkbox" id="tg-video" checked /> Send video
+            clip</label
+          >
+          <div class="row">
+            <button id="btn-save-tg">Save</button>
+            <button id="btn-test-tg" class="secondary">Test connection</button>
+          </div>
+          <div id="tg-result" class="result hidden"></div>
+        </div>
+
+        <div class="card">
+          <h3>Alarm</h3>
+          <label class="check"
+            ><input type="checkbox" id="al-play" checked /> Play sound on the
+            host</label
+          >
+          <label
+            >Repeat every <b id="al-repeat-val">3</b>s while the dog is on the
+            couch <span class="hint">(0 = once per session)</span></label
+          >
+          <input
+            type="range"
+            id="al-repeat"
+            min="0"
+            max="30"
+            step="1"
+            value="3"
+          />
+          <button id="btn-save-alert">Save</button>
+        </div>
+
+        <div class="card">
+          <h3>Video clips</h3>
+          <label class="check"
+            ><input type="checkbox" id="v-enabled" checked /> Record a clip for
+            each alert</label
+          >
+          <label
+            >Pre-roll <b id="v-pre-val">4</b>s
+            <span class="hint"
+              >(seconds kept from *before* the alert, so you see the jump)</span
+            ></label
+          >
+          <input type="range" id="v-pre" min="0" max="15" step="1" value="4" />
+          <label>Post-roll <b id="v-post-val">3</b>s</label>
+          <input type="range" id="v-post" min="0" max="15" step="1" value="3" />
+          <label>Max clip length <b id="v-max-val">60</b>s</label>
+          <input
+            type="range"
+            id="v-max"
+            min="10"
+            max="300"
+            step="10"
+            value="60"
+          />
+          <button id="btn-save-video">Save</button>
+        </div>
+
+        <div class="card">
+          <h3>Password</h3>
+          <label>Current password</label>
+          <input type="password" id="pw-current" />
+          <label>New password <span class="hint">(8+ characters)</span></label>
+          <input type="password" id="pw-new" />
+          <button id="btn-save-pw">Change password</button>
+          <div id="pw-result" class="result hidden"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

@@ -4,7 +4,7 @@ Watches a camera feed, and tells you when your dog gets on the couch.
 
 How it works: a lightweight object detector (MobileNet-SSD, runs fine on
 CPU) finds dogs in each frame; a "couch zone" you draw once tells the
-program which part of the frame *is* the couch; when a detected dog's box
+program which part of the frame _is_ the couch; when a detected dog's box
 overlaps that zone enough, for enough consecutive frames, it logs the
 event, saves a snapshot, plays a sound, and (optionally) pings your phone
 via Telegram.
@@ -50,6 +50,7 @@ detected dog boxed in green (or red once it's confirmed "on the couch").
 Press `q` in that window (or Ctrl+C in the terminal) to stop.
 
 What happens on a confirmed "on the couch" event:
+
 - a snapshot is saved to `snapshots/`
 - a line is appended to `logs/events.csv` (timestamp, duration, confidence, snapshot path)
 - a short sound plays
@@ -95,8 +96,8 @@ in `config.yaml`:
 
 ```yaml
 camera:
-  index: 1          # whatever index showed a live picture
-  backend_api: dshow  # whatever backend showed a live picture
+  index: 1 # whatever index showed a live picture
+  backend_api: dshow # whatever backend showed a live picture
 ```
 
 `dshow` (DirectShow) fixes this for most people -- `monitor.py` and
@@ -104,7 +105,56 @@ camera:
 still seeing a frozen frame, it usually means index 0 isn't your real
 camera at all; `list_cameras.py` will find the right index.
 
-## 4. Optional: push notifications to your phone (Telegram)
+## 4. Web dashboard (recommended)
+
+    python app.py
+
+Then open <http://127.0.0.1:8080>. On first visit you set a dashboard
+password; it is hashed with werkzeug and stored in `instance/settings.json`,
+which is gitignored.
+
+The dashboard gives you:
+
+* **Live** - the camera feed with the couch zone and detection boxes drawn
+  on it, plus live stats and a "test alarm" button.
+* **Events** - every alert with its snapshot and a playable video clip.
+* **Sound** - record a custom alert through your browser mic (say whatever
+  actually works on your dog) and set it as the alarm.
+* **Settings** - Telegram credentials, alarm repeat interval, clip lengths,
+  and password change.
+
+To reach it from your phone on the same wifi:
+
+    python app.py --host 0.0.0.0
+
+### Important: one process owns the camera
+
+A camera can only be opened by one process at a time. `app.py` runs the
+detection loop itself, so **run either `app.py` or `monitor.py`, not both**.
+`monitor.py` still exists for a headless box with no web UI.
+
+### Video clips
+
+Clips include a few seconds of **pre-roll** from before the alert fired, so
+you see the dog actually getting on rather than already sitting there. The
+codec is probed at startup: H.264 where available (all browsers play it),
+falling back to WebM/VP8. Adjust pre-roll, post-roll and the length cap in
+Settings.
+
+### Security
+
+The dashboard is HTTP only. Passwords are hashed, sessions are signed and
+HttpOnly, POSTs are CSRF-protected, and logins are rate-limited after 8
+failures. That is appropriate for your own machine or a trusted home
+network. **Before exposing it to the internet, put it behind a reverse proxy
+with TLS** (Caddy gets you an automatic certificate in about three lines).
+Without TLS, your password crosses the network in the clear.
+
+Note that browsers only allow microphone access on `localhost` or over
+HTTPS, so recording a custom sound from your phone over plain LAN HTTP will
+be blocked by the browser - record it on the host, or set up TLS.
+
+## 5. Optional: push notifications to your phone (Telegram)
 
 This works from a laptop or later from a headless Raspberry Pi, and takes
 about 2 minutes:
@@ -123,7 +173,7 @@ about 2 minutes:
        chat_id: "123456789"
    ```
 
-## 5. Moving to a Raspberry Pi later
+## 6. Moving to a Raspberry Pi later
 
 The detection, zone, and alert logic (`detector.py`, `zone.py`,
 `debounce.py`, `alert.py`, `monitor.py`) don't know or care what camera
@@ -146,6 +196,9 @@ they're reading from -- only `camera.py` does. To switch:
 A Pi 4 or better runs MobileNet-SSD comfortably in real time on CPU; no
 GPU or Coral accelerator needed for this use case.
 
+Telegram is now configured from the dashboard's Settings tab rather than
+config.yaml, so the bot token never lands in a committed file.
+
 ## Project layout
 
 ```
@@ -162,6 +215,7 @@ tests/          # unit tests for zone.py and debounce.py (no camera needed)
 ```
 
 Run the tests any time with:
+
 ```bash
 python tests/test_zone.py
 python tests/test_debounce.py
