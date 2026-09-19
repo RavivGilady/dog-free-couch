@@ -27,7 +27,7 @@ display:
 debug:
   # Testing aid: also detect people and log when one enters the couch zone.
   # Never fires alerts -- dogs remain the only thing that triggers anything.
-  log_persons: false
+  log_persons: true
 alert:
   play_sound: true
   # Keep beeping this often (seconds) for as long as the dog is on the couch.

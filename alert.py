@@ -48,35 +48,87 @@ def save_snapshot(frame, snapshot_dir: str) -> str:
     return str(full_path)
 
 
-def play_alert_sound() -> None:
-    """Best-effort local alert sound. Never raises -- a missing audio
-    backend shouldn't take down the monitor."""
+# Cached path to the generated alarm WAV, built once on first use.
+_ALARM_WAV = None
+
+
+def _build_alarm_wav(beeps=3, freq=1400.0, beep_ms=160, gap_ms=90, volume=0.85):
+    """Synthesize a short, loud two-tone alarm and cache it as a .wav.
+
+    Deliberately NOT a system sound: Windows' MessageBeep() plays whatever
+    the user's sound scheme maps to, which is often something soft (or
+    nothing at all), and a subtle chirp is useless as a dog deterrent.
+    A generated square wave is loud, unmistakable, and identical on every
+    machine regardless of the user's sound settings.
+    """
+    import math
+    import struct
+    import tempfile
+    import wave
+
+    rate = 44100
+    amp = int(32767 * max(0.0, min(1.0, volume)))
+    frames = bytearray()
+
+    def tone(f, ms):
+        n = int(rate * ms / 1000)
+        for i in range(n):
+            # Square wave -- far more piercing than a sine at equal amplitude.
+            v = amp if math.sin(2 * math.pi * f * i / rate) >= 0 else -amp
+            # Brief fade in/out so the edges don't click.
+            fade = min(1.0, i / 200.0, (n - i) / 200.0)
+            frames.extend(struct.pack("<h", int(v * fade)))
+
+    def silence(ms):
+        frames.extend(bytes(2 * int(rate * ms / 1000)))
+
+    for i in range(beeps):
+        # Alternate two pitches -- a warble carries better than one flat note.
+        tone(freq if i % 2 == 0 else freq * 0.75, beep_ms)
+        if i < beeps - 1:
+            silence(gap_ms)
+
+    dest = Path(tempfile.gettempdir()) / "dog_couch_alarm.wav"
+    with wave.open(str(dest), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(bytes(frames))
+    return str(dest)
+
+
+def get_alarm_wav():
+    global _ALARM_WAV
+    if _ALARM_WAV is None or not Path(_ALARM_WAV).exists():
+        _ALARM_WAV = _build_alarm_wav()
+    return _ALARM_WAV
+
+
+def play_alert_sound():
+    """Best-effort local alert sound. Never raises and never blocks -- a
+    missing audio backend shouldn't take down (or stall) the monitor."""
     try:
-        if sys.platform == "darwin":
-            import subprocess
-            subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"])
-        elif sys.platform.startswith("linux"):
-            import subprocess
-            # 'paplay' with a common system sound; falls back to a terminal bell.
-            candidates = [
-                "/usr/share/sounds/freedesktop/stereo/complete.oga",
-                "/usr/share/sounds/alsa/Front_Center.wav",
-            ]
-            played = False
-            for sound in candidates:
-                if Path(sound).exists():
-                    subprocess.Popen(["paplay", sound])
-                    played = True
-                    break
-            if not played:
-                print("\a", end="", flush=True)
-        elif sys.platform == "win32":
+        wav = get_alarm_wav()
+
+        if sys.platform == "win32":
             import winsound  # type: ignore
-            winsound.MessageBeep()
-        else:
-            print("\a", end="", flush=True)
-    except Exception:
-        print("\a", end="", flush=True)
+            # SND_ASYNC so the capture loop keeps running while it plays.
+            winsound.PlaySound(wav, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            return
+
+        import shutil
+        import subprocess
+        for player in ("paplay", "aplay", "afplay"):
+            if shutil.which(player):
+                subprocess.Popen([player, wav],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                return
+        print("", end="", flush=True)
+    except Exception as e:
+        print(f"[alert] sound failed ({e}); falling back to terminal bell",
+              file=sys.stderr)
+        print("", end="", flush=True)
 
 
 def send_telegram_alert(bot_token: str, chat_id: str, message: str,
