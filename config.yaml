@@ -1,0 +1,42 @@
+camera:
+  backend: opencv
+  index: 1
+  width: 640
+  height: 480
+model:
+  prototxt: models/MobileNetSSD_deploy.prototxt
+  weights: models/MobileNetSSD_deploy.caffemodel
+  confidence_threshold: 0.5
+zone:
+  points:
+  - - 4
+    - 330
+  - - 417
+    - 314
+  - - 502
+    - 427
+  - - 1
+    - 436
+  overlap_threshold: 0.35
+debounce:
+  enter_frames: 5
+  exit_frames: 8
+  min_alert_interval_sec: 30
+display:
+  show_window: true
+debug:
+  # Testing aid: also detect people and log when one enters the couch zone.
+  # Never fires alerts -- dogs remain the only thing that triggers anything.
+  log_persons: false
+alert:
+  play_sound: true
+  # Keep beeping this often (seconds) for as long as the dog is on the couch.
+  # Set to 0 for a single beep when it gets on, then silence.
+  repeat_sound_sec: 3
+  save_snapshot: true
+  snapshot_dir: snapshots
+  log_csv: logs/events.csv
+  telegram:
+    enabled: false
+    bot_token: ''
+    chat_id: ''
