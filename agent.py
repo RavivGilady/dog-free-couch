@@ -26,7 +26,12 @@ from cloud_client import (AgentLink, CloudClient, RemoteSettings, RemoteStore,
                           Uploader)
 from service import MonitorService
 
-TOKEN_FILE = Path("instance/device_token")
+# Everything the agent owns is found relative to this file, never the
+# working directory: the dashboard hands out an absolute command so it can
+# be started from anywhere (a shortcut, a service unit, another drive).
+PROJECT_DIR = Path(__file__).resolve().parent
+
+TOKEN_FILE = PROJECT_DIR / "instance" / "device_token"
 
 
 def resolve_token(arg: str | None) -> str:
@@ -46,9 +51,29 @@ def resolve_token(arg: str | None) -> str:
              "  python agent.py --server <url> --token <token>")
 
 
+def anchor_paths(config: dict, base: Path) -> None:
+    """config.yaml names its files relative to the project ("models/...",
+    "snapshots", "logs/events.csv"), which only resolves when the agent is
+    started from the project folder. Anchor them to the config file's own
+    folder so an absolute command works from any working directory.
+
+    Absolute values are left alone, so pointing a config at a model or a
+    clip directory elsewhere on the disk keeps working.
+    """
+    for section, keys in (("model", ("prototxt", "weights")),
+                          ("alert", ("snapshot_dir", "log_csv"))):
+        values = config.get(section)
+        if not isinstance(values, dict):
+            continue
+        for key in keys:
+            path = values.get(key)
+            if isinstance(path, str) and path and not Path(path).is_absolute():
+                values[key] = str(base / path)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Dog Free Couch camera agent")
-    ap.add_argument("--config", default="config.yaml")
+    ap.add_argument("--config", default=str(PROJECT_DIR / "config.yaml"))
     ap.add_argument("--server", help="Server URL, e.g. https://couch.example.com")
     ap.add_argument("--token", help="Device token from the dashboard (saved for next time)")
     ap.add_argument("--keep-local", action="store_true",
@@ -57,6 +82,7 @@ def main():
 
     with open(args.config, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
+    anchor_paths(config, Path(args.config).resolve().parent)
 
     server = (args.server or os.environ.get("DFC_SERVER")
               or config.get("cloud", {}).get("server"))

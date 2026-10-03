@@ -304,7 +304,7 @@ $("#devices-list").addEventListener("click", async (e) => {
       )
         return;
       const r = await api(`/api/devices/${id}/token`, { method: "POST" });
-      showToken(r.token);
+      showToken(r.token, r.agent_cmd, r.agent_cmd_local);
     } else if (e.target.classList.contains("btn-deldev")) {
       if (!confirm(`Delete "${dev.name}" and all its events and clips?`))
         return;
@@ -326,15 +326,23 @@ $("#btn-add-device").addEventListener("click", async () => {
     deviceId = r.device.id;
     await loadDevices();
     renderDevices();
-    showToken(r.token);
+    showToken(r.token, r.agent_cmd, r.agent_cmd_local);
   } catch (err) {
     toast(`Failed: ${err.message}`);
   }
 });
 
-function showToken(token) {
+function showToken(token, agentCmd, agentCmdLocal) {
+  // The server sends a command naming its own interpreter and an absolute
+  // agent.py when it can see both, so this pastes into any terminal as-is.
+  // Otherwise it can't know where the agent lives or which Python can run
+  // it (that machine is often not this one), and the folder matters again.
+  const cmd = agentCmd || "python agent.py";
+  $("#token-hint").textContent = agentCmdLocal
+    ? "On the camera computer, run:"
+    : "On the camera computer, in this project's folder, with its virtualenv active, run:";
   $("#token-cmd").textContent =
-    `python agent.py --server ${location.origin} --token ${token}`;
+    `${cmd} --server ${location.origin} --token ${token}`;
   $("#token-box").classList.remove("hidden");
 }
 

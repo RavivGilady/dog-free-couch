@@ -7,9 +7,11 @@ deliberate: it doesn't reveal that the id exists.
 """
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import re
+import sys
 import time
 import wave
 from pathlib import Path
@@ -27,6 +29,44 @@ bp = Blueprint("api", __name__, url_prefix="/api")
 
 STREAM_IDLE_SEC = 20
 MAX_ZONE_POINTS = 24
+
+
+def _quote(part: str) -> str:
+    return f'"{part}"' if any(c.isspace() for c in part) else part
+
+
+def _agent_command() -> tuple[str, bool]:
+    """The "run this on the camera computer" command the dashboard shows
+    with a new token, and whether it came out machine-specific.
+
+    Absolute, and with this interpreter spelled out, when agent.py sits
+    next to this package and we can actually import what it needs: then the
+    command can be pasted into any terminal without cd-ing into the project
+    or activating its virtualenv first. Bare `python agent.py` is wrong in
+    that case -- it picks up whatever is on PATH, typically a system Python
+    with no yaml or opencv.
+
+    Both conditions have to hold. The server image deliberately does not
+    ship the agent (it runs by the camera, often another machine entirely),
+    and a server-only virtualenv has no opencv even when the file is there,
+    so in either case naming this interpreter would just send someone to a
+    Python that cannot run the agent. We fall back to the relative command
+    and let the README's install steps speak instead.
+    """
+    script = Path(__file__).resolve().parent.parent / "agent.py"
+    if script.is_file() and _has_agent_deps():
+        return f"{_quote(sys.executable)} {_quote(str(script))}", True
+    return "python agent.py", False
+
+
+def _has_agent_deps() -> bool:
+    """Whether this interpreter could import the agent's top-level deps.
+    find_spec only resolves them, so nothing heavy gets loaded here."""
+    try:
+        return all(importlib.util.find_spec(m) is not None
+                   for m in ("yaml", "cv2", "numpy"))
+    except (ImportError, ValueError):
+        return False
 
 
 def _own_device(device_id: int) -> Device:
@@ -100,7 +140,9 @@ def create_device():
     db().add(d)
     db().commit()
     # The only time the token is ever shown: we keep just its hash.
-    return jsonify({"device": d.to_dict(), "token": token}), 201
+    cmd, local = _agent_command()
+    return jsonify({"device": d.to_dict(), "token": token,
+                    "agent_cmd": cmd, "agent_cmd_local": local}), 201
 
 
 @bp.patch("/devices/<int:device_id>")
@@ -136,7 +178,9 @@ def rotate_token(device_id):
     token = new_device_token()
     d.token_hash = hash_token(token)
     db().commit()
-    return jsonify({"token": token})
+    cmd, local = _agent_command()
+    return jsonify({"token": token, "agent_cmd": cmd,
+                    "agent_cmd_local": local})
 
 
 @bp.post("/devices/<int:device_id>/settings")
