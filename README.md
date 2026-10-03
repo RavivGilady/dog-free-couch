@@ -24,7 +24,40 @@ pip install -r requirements.txt
 python download_model.py        # fetches the ~23MB detection model, one time
 ```
 
-## 2. Calibrate the couch zone
+## 2. Choose your camera
+
+A laptop usually registers more than one camera -- the real webcam, the
+infrared Windows Hello sensor, a meeting app's virtual camera -- and OpenCV
+addresses them by bare index, so the one it picks by default is often not
+the one pointing at the couch.
+
+```bash
+python list_cameras.py
+```
+
+It finds every camera on the computer, names them (asking the OS, so you
+see "Integrated Camera" rather than "index 0"), and says which ones give a
+live picture. Then a preview window opens: press `n` / `p` to step through
+them, and `s` on the one showing your couch. That writes the choice into
+`config.yaml` -- comments and all other settings left alone -- and
+everything else (`calibrate.py`, `monitor.py`, `agent.py`) picks it up.
+
+Other ways to run it:
+
+```bash
+python list_cameras.py --list           # just list what was found
+python list_cameras.py --no-preview     # choose from the list, no window
+python list_cameras.py --index 1 --save # save a known choice outright
+```
+
+`--no-preview` is the one to use over SSH on a headless box.
+
+On Windows, `pip install -r requirements.txt` also installs `pygrabber`,
+which lets the tool read the DirectShow device order so the names line up
+exactly with the indices. Without it the names still show, but they come
+from the OS device list and may be shuffled -- trust the picture.
+
+## 3. Calibrate the couch zone
 
 Point your webcam at the couch, then run:
 
@@ -44,7 +77,7 @@ from your own computer instead -- on the live view in the dashboard, which is
 the only option when the camera is a headless Pi in another room. See
 [Drawing the couch zone from the dashboard](#drawing-the-couch-zone-from-the-dashboard).
 
-## 3. Run the monitor
+## 4. Run the monitor
 
 ```bash
 python monitor.py
@@ -94,11 +127,9 @@ Fix:
 python list_cameras.py
 ```
 
-This opens a window and prints which index/backend combo it's trying.
-Press `n` to cycle to the next camera index, `b` to cycle backends (`any`
-/ `dshow` / `msmf`) for the current index, until you see a real, moving
-picture of the room. Note the index and backend it shows, then set them
-in `config.yaml`:
+This is the camera picker from step 2: it names every camera, flags the
+ones whose picture is frozen rather than live, and saves the one you pick
+into `config.yaml` as both an index and a backend:
 
 ```yaml
 camera:
@@ -107,11 +138,11 @@ camera:
 ```
 
 `dshow` (DirectShow) fixes this for most people -- `monitor.py` and
-`calibrate.py` already try it first automatically on Windows, so if you're
-still seeing a frozen frame, it usually means index 0 isn't your real
-camera at all; `list_cameras.py` will find the right index.
+`calibrate.py` already try it first automatically on Windows, so if you are
+still seeing a frozen frame, it usually means index 0 is not your real
+camera at all, which is exactly what the picker sorts out.
 
-## 4. Web dashboard: server + camera agent (recommended)
+## 5. Web dashboard: server + camera agent (recommended)
 
 The dashboard is a website you can host online, with an account per person
 and any number of cameras per account. It has two parts:
@@ -259,7 +290,7 @@ local copy (pass `--keep-local` to keep it).
   warns if pointed at a remote `http://` URL. Browsers also only allow
   microphone recording on HTTPS or localhost.
 
-## 5. Optional: push notifications to your phone (Telegram)
+## 6. Optional: push notifications to your phone (Telegram)
 
 1. In Telegram, message **@BotFather**, send `/newbot`, and follow the
    prompts. You'll get a bot token (looks like `123456:ABC-DEF...`).
@@ -272,7 +303,7 @@ local copy (pass `--keep-local` to keep it).
 
 (Standalone `monitor.py` still reads `alert.telegram` from `config.yaml`.)
 
-## 6. Moving to a Raspberry Pi later
+## 7. Moving to a Raspberry Pi later
 
 The detection, zone, and alert logic (`detector.py`, `zone.py`,
 `debounce.py`, `alert.py`, `monitor.py`) don't know or care what camera
@@ -311,6 +342,8 @@ debounce.py     # turns noisy per-frame readings into clean enter/leave events
 alert.py        # snapshots, local alarm playback, Telegram, CSV log
 sirens.py       # the built-in sirens, synthesized (python -m sirens to hear)
 sounds.py       # local cache of alert sounds downloaded from the server
+cameras.py      # finds the computer's cameras and names them (per-OS lookup)
+list_cameras.py # pick which camera to use; saves it into config.yaml
 calibrate.py    # one-time tool to draw the couch zone
 monitor.py      # standalone loop with no server (local window, Telegram)
 server/         # web backend (Flask + SQLAlchemy): API, storage, live relay

@@ -71,8 +71,10 @@ class OpenCVCamera(CameraSource):
         if self.cap is None:
             raise RuntimeError(
                 f"Could not open camera at index {index} (tried backend(s): {tried}). "
-                "Is it plugged in / not in use by another app? On macOS you may also "
-                "need to grant camera permission to your terminal."
+                "Run `python list_cameras.py` to see which cameras this computer has "
+                "and pick one. Otherwise: is it plugged in / not in use by another "
+                "app? On macOS you may also need to grant camera permission to your "
+                "terminal."
             )
 
         if width:
@@ -91,8 +93,7 @@ class OpenCVCamera(CameraSource):
             print(
                 f"Warning: camera index {index} opened but frames look like a "
                 "static placeholder (very low variation), not a live feed. "
-                "Run list_cameras.py to check other indices, or set "
-                "camera.backend_api in config.yaml explicitly.",
+                "Run `python list_cameras.py` to pick the right camera.",
                 file=sys.stderr,
             )
 
