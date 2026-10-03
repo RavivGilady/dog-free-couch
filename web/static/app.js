@@ -66,6 +66,8 @@ $$(".tab").forEach((btn) => {
     $$(".panel").forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
+    if (btn.dataset.tab === "live") startStream();
+    else stopStream();
     if (btn.dataset.tab === "events") loadEvents();
     if (btn.dataset.tab === "sound") loadSounds();
     if (btn.dataset.tab === "settings") loadSettings();
@@ -73,9 +75,11 @@ $$(".tab").forEach((btn) => {
 });
 
 /* ---------------- live status ---------------- */
+let lastStatus = null;
 async function pollStatus() {
   try {
     const s = await api("/api/status");
+    lastStatus = s;
     const dot = $("#live-dot");
     dot.className =
       "dot" + (s.dog_on_couch ? " alarm" : s.running ? " live" : "");
@@ -473,9 +477,89 @@ $("#btn-save-pw").addEventListener("click", async () => {
   }
 });
 
-/* Reconnect the stream if it stalls (sleep, wifi drop). */
-$("#stream").addEventListener("error", () => {
-  setTimeout(() => {
-    $("#stream").src = "/stream.mjpg?t=" + Date.now();
-  }, 2000);
+/* ---------------- live stream lifecycle ----------------
+ *
+ * The feed is one long multipart/x-mixed-replace response rendered by an
+ * <img>, and two things make that fragile. Hiding the Live panel (the panels
+ * are display:none) or backgrounding the page lets the browser drop the
+ * connection, and a dropped multipart stream arrives as a *completed* load --
+ * no "error" event -- so the <img> silently freezes on its last frame with
+ * nothing left to recover from.
+ *
+ * So the connection is owned explicitly here: torn down whenever the feed is
+ * not on screen, rebuilt when it is, and watchdogged while it is live.
+ */
+const STREAM_BLANK =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+const STREAM_STALL_MS = 6000;
+
+const streamImg = $("#stream");
+let streamWanted = true; // Live tab showing and page in the foreground
+let streamFrames = 0; // frames seen on the current connection
+let lastFrameAt = Date.now();
+let streamRetry = null;
+
+function startStream() {
+  streamWanted = true;
+  clearTimeout(streamRetry);
+  streamRetry = null;
+  streamFrames = 0;
+  lastFrameAt = Date.now();
+  // The cache buster matters: without it a reconnect can be served from the
+  // dead connection's cache entry and never produce a new frame.
+  streamImg.src = "/stream.mjpg?t=" + Date.now();
+}
+
+function stopStream() {
+  streamWanted = false;
+  clearTimeout(streamRetry);
+  streamRetry = null;
+  // Hold the box open at the size the last frame gave it, so coming back to
+  // the Live tab does not land on a collapsed 1px-tall player.
+  if (streamImg.clientHeight) {
+    streamImg.style.minHeight = streamImg.clientHeight + "px";
+  }
+  // A blank data URI aborts the in-flight request. Clearing src outright
+  // would instead make the browser re-request the page itself.
+  streamImg.src = STREAM_BLANK;
+}
+
+function retryStream(delay = 2000) {
+  if (!streamWanted || streamRetry) return;
+  streamRetry = setTimeout(() => {
+    streamRetry = null;
+    if (streamWanted) startStream();
+  }, delay);
+}
+
+streamImg.addEventListener("load", () => {
+  // Every part of the multipart response fires its own load event.
+  if (streamImg.src.startsWith("data:")) return;
+  streamFrames++;
+  lastFrameAt = Date.now();
+  if (streamFrames === 1) streamImg.style.minHeight = "";
 });
+
+streamImg.addEventListener("error", () => retryStream());
+
+/* A silently closed stream just leaves a frozen picture, so judge it by
+ * whether frames are still arriving -- but only once this browser has proven
+ * it fires a load event per frame, and only while the host says it has
+ * frames to send, so a stopped or camera-less monitor is not mistaken for a
+ * dropped connection. */
+setInterval(() => {
+  if (!streamWanted || streamRetry || streamFrames < 2) return;
+  if (!lastStatus || !lastStatus.running || !lastStatus.camera_ok) return;
+  if (Date.now() - lastFrameAt > STREAM_STALL_MS) startStream();
+}, 2000);
+
+/* Switching away from the browser (or locking the phone) is the common way
+ * to lose the feed, and nothing tells us about it afterwards. */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopStream();
+  else if ($("#tab-live").classList.contains("active")) startStream();
+});
+
+/* The page loads with the Live tab showing and the <img> already fetching,
+ * so adopt that connection rather than opening a second one. */
+if (document.hidden) stopStream();
