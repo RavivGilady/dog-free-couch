@@ -477,7 +477,13 @@ async function pollStatus() {
             : s.camera_ok
               ? "Watching"
               : "No camera";
-    $("#s-fps").textContent = online && s.fps ? s.fps.toFixed(1) : "—";
+    // Two rates now: the live view runs at the camera's pace, detection at
+    // its own (slower) pace in a second thread on the agent.
+    $("#s-fps").textContent =
+      online && s.fps
+        ? s.fps.toFixed(1) +
+          (s.detect_fps ? ` / ${s.detect_fps.toFixed(1)} det` : "")
+        : "—";
     $("#s-dogs").textContent = online ? (s.dogs_in_frame ?? 0) : "—";
     $("#s-people").textContent = online ? (s.persons_in_frame ?? 0) : "—";
     $("#s-today").textContent = stats.today_alerts;

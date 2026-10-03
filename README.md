@@ -71,12 +71,43 @@ Everything lives in `config.yaml`:
   couch isn't triggering; raise it if walking past the couch is triggering.
 - `debounce.enter_frames` / `exit_frames` -- how many consecutive frames of
   "yes"/"no" are needed before it's treated as a real event. Higher values
-  are steadier but slower to react; at ~15-20fps, 5 frames is roughly a
-  third of a second.
+  are steadier but slower to react. These count _detection_ frames, not live
+  view frames, so at a detection rate of ~10fps, 5 frames is about half a
+  second.
 - `debounce.min_alert_interval_sec` -- won't send more than one alert this
   often, so it doesn't spam you while the dog just... stays there.
 - `model.confidence_threshold` -- how sure the detector must be that
   something is a dog before it's considered at all.
+
+### Tuning the live view's frame rate
+
+The dashboard's FPS readout shows two numbers: the live view's frame rate and,
+after the slash, how often detection runs. They are deliberately different --
+capture and detection run in separate threads, so the picture stays smooth
+even though a MobileNet-SSD pass costs 100-250ms on CPU.
+
+If the live view is still slow:
+
+- `camera.fourcc: "mjpg"` -- the biggest single win on USB webcams. Many only
+  reach 30fps in MJPEG and drop to 5-10fps on raw YUY2 at the same resolution.
+- `camera.fps` -- what to request from the camera; it caps the live view.
+- `camera.width` / `height` -- fewer pixels means cheaper JPEG encoding, and
+  detection resizes to 300x300 anyway, so dropping to 480x360 costs little
+  accuracy.
+- `display.jpeg_quality` -- lower it (50-60) when watching over wifi; the
+  encode and the transfer both get cheaper.
+- `model.max_detect_fps` -- how often detection may run at most. Lowering it
+  leaves more CPU for capture; raising it (or 0 for unlimited) reacts sooner
+  at the cost of a less smooth picture. Note that `debounce.enter_frames`
+  counts _detection_ frames, so this is the rate that decides how quickly an
+  event fires.
+- `alert.video_fps` -- the frame rate event clips are written at. Clips are
+  fed at exactly this rate regardless of how fast the camera runs, so they
+  play back at real speed.
+
+When watching through the hosted dashboard, the agent still uploads at most a
+few frames a second (`LIVE_MAX_FPS` in `cloud_client.py`) -- that cap is about
+your upload bandwidth, not the camera.
 
 ### Troubleshooting: gray/frozen "no signal" window instead of the camera
 
@@ -302,7 +333,7 @@ GPU or Coral accelerator needed for this use case.
 ```
 agent.py        # camera agent: runs detection and reports to the server
 cloud_client.py # agent <-> server: heartbeat, upload queue, live frames
-service.py      # the detection loop (camera -> detector -> zone -> debounce)
+service.py      # capture + detection loops (camera -> detector -> zone -> debounce)
 recorder.py     # ring-buffered clip recorder with pre-roll
 camera.py       # camera backends: OpenCV webcam today, picamera2 on a Pi later
 detector.py     # MobileNet-SSD wrapper -- finds "dog" boxes in a frame

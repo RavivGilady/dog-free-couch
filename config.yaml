@@ -3,10 +3,21 @@ camera:
   index: 1
   width: 640
   height: 480
+  # Frame rate to request from the camera. The live view now runs at whatever
+  # the camera delivers -- detection no longer holds it back.
+  fps: 30
+  # Pixel format. Many USB webcams reach 30fps only in MJPEG and fall to
+  # 5-10fps on raw YUY2 at the same resolution; set "mjpg" if the live view
+  # is still slow, or leave empty for the driver default.
+  fourcc: ""
 model:
   prototxt: models/MobileNetSSD_deploy.prototxt
   weights: models/MobileNetSSD_deploy.caffemodel
   confidence_threshold: 0.5
+  # Cap on how often detection runs (0 = as fast as the CPU manages). A few
+  # per second is plenty for the debouncer, and the headroom keeps the live
+  # view smooth instead of fighting inference for CPU cores.
+  max_detect_fps: 12
 zone:
   points:
     - - 4
@@ -24,6 +35,9 @@ debounce:
   min_alert_interval_sec: 30
 display:
   show_window: true
+  # Live-stream JPEG quality (1-100). Lower is cheaper to encode and to push
+  # over the network, which matters most when watching from a phone on wifi.
+  jpeg_quality: 70
 debug:
   # Testing aid: also detect people and log when one enters the couch zone.
   # Never fires alerts -- dogs remain the only thing that triggers anything.
@@ -37,6 +51,9 @@ alert:
   # Set to 0 for a single beep when it gets on, then silence.
   repeat_sound_sec: 1
   save_snapshot: true
+  # Frame rate event clips are written at, and fed frames at -- independent of
+  # the capture rate, so clips play back at real speed.
+  video_fps: 15
   snapshot_dir: snapshots
   log_csv: logs/events.csv
   telegram:
