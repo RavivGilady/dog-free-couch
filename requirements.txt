@@ -1,5 +1,6 @@
+# Camera agent (agent.py / monitor.py / calibrate.py). The server has its
+# own list in server/requirements.txt.
 opencv-python>=4.8,<5
 numpy>=1.24
 pyyaml>=6.0
 requests>=2.31
-flask>=3.0

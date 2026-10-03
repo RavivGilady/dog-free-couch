@@ -1,0 +1,37 @@
+# One-box deployment: the server plus Caddy for automatic HTTPS.
+#
+#   1. Point a DNS A record (e.g. couch.example.com) at this machine.
+#   2. Create a .env file next to this one:
+#        DOMAIN=couch.example.com
+#        SECRET_KEY=<output of: python -c "import secrets; print(secrets.token_urlsafe(48))">
+#   3. docker compose up -d
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      TRUST_PROXY: "1"
+      SECURE_COOKIES: "1"
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-1}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+    volumes:
+      - couch-data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - server
+
+volumes:
+  couch-data:
+  caddy-data:

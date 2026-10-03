@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	encode gzip
+	# flush_interval -1 so the live MJPEG view streams instead of buffering.
+	reverse_proxy server:8000 {
+		flush_interval -1
+	}
+}

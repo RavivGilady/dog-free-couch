@@ -109,6 +109,7 @@ def main():
     # event itself was suppressed by min_alert_interval_sec.
     play_sound = alert_cfg.get("play_sound", True)
     repeat_sound_sec = alert_cfg.get("repeat_sound_sec", 0) or 0
+    siren = alert_cfg.get("sound", "builtin")
     last_sound_time = float("-inf")
 
     try:
@@ -179,7 +180,7 @@ def main():
             if play_sound and tracker.state == "ON":
                 now = time.time()
                 if now - last_sound_time >= repeat_sound_sec:
-                    play_alert_sound()
+                    play_alert_sound(builtin=siren)
                     # A repeat interval of 0 means "beep once on entry only":
                     # push the next allowed beep out of reach until it leaves.
                     last_sound_time = now if repeat_sound_sec else float("inf")

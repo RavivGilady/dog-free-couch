@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dashboard",
+      "name": "server",
       "runtimeExecutable": "venv/Scripts/python.exe",
-      "runtimeArgs": ["app.py", "--port", "8080"],
-      "port": 8080
+      "runtimeArgs": ["-m", "server", "--port", "8000"],
+      "port": 8000
     }
   ]
 }

@@ -1,11 +1,11 @@
 venv/
+.git/
 __pycache__/
-*.pyc
+data/
+instance/
 logs/
 snapshots/
 videos/
 sounds/
-data/
-instance/
-models/*.caffemodel
-.env
+models/
+tests/

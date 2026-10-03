@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dog Free Couch</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <!-- ================= AUTH ================= -->
+    <div id="auth-view" class="login-page hidden">
+      <main class="login-card">
+        <div class="login-mark">DOG FREE COUCH</div>
+        <h1 id="auth-title">Sign in</h1>
+        <p class="muted" id="auth-sub">Welcome back.</p>
+        <div id="auth-error" class="alert-error hidden"></div>
+        <form id="auth-form">
+          <label for="auth-email">Email</label>
+          <input type="email" id="auth-email" required autocomplete="email" />
+          <label for="auth-password">Password</label>
+          <input
+            type="password"
+            id="auth-password"
+            required
+            autocomplete="current-password"
+          />
+          <button type="submit" id="auth-submit">Sign in</button>
+        </form>
+        <div class="auth-switch" id="auth-switch"></div>
+      </main>
+    </div>
+
+    <!-- ================= APP ================= -->
+    <div id="app-view" class="hidden">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot" id="live-dot"></span>
+          <strong>Dog Free Couch</strong>
+        </div>
+        <select
+          id="device-pick"
+          class="device-pick"
+          aria-label="Camera"
+        ></select>
+        <nav class="tabs">
+          <button class="tab active" data-tab="live">Live</button>
+          <button class="tab" data-tab="events">Events</button>
+          <button class="tab" data-tab="sound">Sound</button>
+          <button class="tab" data-tab="settings">Settings</button>
+          <button class="tab" data-tab="devices">Devices</button>
+        </nav>
+        <span class="who" id="who"></span>
+        <button class="ghost small" id="btn-logout">Sign out</button>
+      </header>
+
+      <main>
+        <!-- ================= LIVE ================= -->
+        <section id="tab-live" class="panel active">
+          <div class="live-grid">
+            <div class="video-wrap">
+              <img id="stream" class="hidden" alt="Live camera view" />
+              <div id="stream-empty" class="video-empty">
+                Add a camera in the Devices tab to get started.
+              </div>
+              <div id="stream-badge" class="badge hidden">DOG ON COUCH</div>
+              <!-- Corners are kept as fractions of the frame, so this
+                   overlay is drawn in its own pixels and redrawn on
+                   resize rather than carrying a viewBox. -->
+              <svg id="zone-svg" class="zone-svg hidden"></svg>
+            </div>
+            <aside class="side">
+              <div class="stat-row">
+                <div class="stat">
+                  <span class="k">Status</span
+                  ><span class="v" id="s-state">&mdash;</span>
+                </div>
+                <div class="stat">
+                  <span class="k">FPS</span
+                  ><span class="v" id="s-fps">&mdash;</span>
+                </div>
+              </div>
+              <div class="stat-row">
+                <div class="stat">
+                  <span class="k">Dogs in frame</span
+                  ><span class="v" id="s-dogs">0</span>
+                </div>
+                <div class="stat">
+                  <span class="k">People</span
+                  ><span class="v" id="s-people">0</span>
+                </div>
+              </div>
+              <div class="stat-row">
+                <div class="stat">
+                  <span class="k">Alerts today</span
+                  ><span class="v" id="s-today">0</span>
+                </div>
+                <div class="stat">
+                  <span class="k">Alerts total</span
+                  ><span class="v" id="s-total">0</span>
+                </div>
+              </div>
+              <div class="stat-row">
+                <div class="stat wide">
+                  <span class="k">Longest session</span
+                  ><span class="v" id="s-longest">&mdash;</span>
+                </div>
+              </div>
+              <div id="s-error" class="alert-error hidden"></div>
+
+              <div class="zone-box" id="zone-box">
+                <span class="k">Couch zone</span>
+                <p class="hint" id="zone-hint"></p>
+                <button id="btn-zone-edit" class="secondary">
+                  Draw couch zone
+                </button>
+                <div id="zone-controls" class="hidden">
+                  <label
+                    >Alert when <b id="zone-th-val">35</b>% of the dog is
+                    inside</label
+                  >
+                  <input
+                    type="range"
+                    id="zone-th"
+                    min="5"
+                    max="95"
+                    step="5"
+                    value="35"
+                  />
+                  <div class="row">
+                    <button id="btn-zone-save">Save zone</button>
+                    <button id="btn-zone-undo" class="small secondary">
+                      Undo
+                    </button>
+                    <button id="btn-zone-clear" class="small secondary">
+                      Clear
+                    </button>
+                    <button id="btn-zone-cancel" class="small ghost">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button id="btn-test-sound" class="secondary">
+                Test alarm on camera
+              </button>
+              <p class="hint">
+                Plays through the computer running the camera agent, not this
+                browser.
+              </p>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ================= EVENTS ================= -->
+        <section id="tab-events" class="panel">
+          <div class="events-head">
+            <h2>Events</h2>
+            <label class="check"
+              ><input type="checkbox" id="all-devices" /> All cameras</label
+            >
+          </div>
+          <div id="events-list" class="events-list">
+            <p class="muted">Loading&hellip;</p>
+          </div>
+          <button id="btn-more" class="secondary hidden">Load more</button>
+        </section>
+
+        <!-- ================= SOUND ================= -->
+        <section id="tab-sound" class="panel">
+          <h2>Alert sound</h2>
+          <p class="muted">
+            Pick one of the built-in sirens below, or record what the dog should
+            hear &mdash; your voice tends to work better than a tone, they
+            already know it. The choice is sent to the selected camera.
+          </p>
+
+          <div class="recorder card">
+            <div class="rec-controls">
+              <button id="btn-rec" class="record">Record</button>
+              <span id="rec-time" class="rec-time">0.0s</span>
+              <span id="rec-hint" class="hint">Needs mic permission</span>
+            </div>
+            <div id="rec-preview" class="hidden">
+              <audio id="rec-audio" controls></audio>
+              <input
+                type="text"
+                id="rec-label"
+                placeholder="Name this sound"
+                maxlength="40"
+              />
+              <button id="btn-save-rec">Save &amp; use</button>
+              <button id="btn-discard" class="ghost">Discard</button>
+            </div>
+          </div>
+
+          <h3>Library</h3>
+          <p class="muted">
+            Sirens are generated on the camera, so they never have to be
+            downloaded.
+          </p>
+          <div id="sounds-list" class="sounds-list">
+            <p class="muted">Loading&hellip;</p>
+          </div>
+        </section>
+
+        <!-- ================= SETTINGS ================= -->
+        <section id="tab-settings" class="panel">
+          <h2>Settings</h2>
+
+          <div class="card">
+            <h3>Alarm <span class="hint" id="al-device"></span></h3>
+            <label class="check"
+              ><input type="checkbox" id="al-play" checked /> Play sound on the
+              camera computer</label
+            >
+            <label
+              >Repeat every <b id="al-repeat-val">3</b>s while the dog is on the
+              couch <span class="hint">(0 = once per session)</span></label
+            >
+            <input
+              type="range"
+              id="al-repeat"
+              min="0"
+              max="30"
+              step="1"
+              value="3"
+            />
+            <button id="btn-save-alert">Save</button>
+          </div>
+
+          <div class="card">
+            <h3>Video clips <span class="hint" id="v-device"></span></h3>
+            <label class="check"
+              ><input type="checkbox" id="v-enabled" checked /> Record a clip
+              for each alert</label
+            >
+            <label
+              >Pre-roll <b id="v-pre-val">4</b>s
+              <span class="hint"
+                >(seconds kept from before the alert, so you see the jump)</span
+              ></label
+            >
+            <input
+              type="range"
+              id="v-pre"
+              min="0"
+              max="15"
+              step="1"
+              value="4"
+            />
+            <label>Post-roll <b id="v-post-val">3</b>s</label>
+            <input
+              type="range"
+              id="v-post"
+              min="0"
+              max="15"
+              step="1"
+              value="3"
+            />
+            <label>Max clip length <b id="v-max-val">60</b>s</label>
+            <input
+              type="range"
+              id="v-max"
+              min="10"
+              max="300"
+              step="10"
+              value="60"
+            />
+            <button id="btn-save-video">Save</button>
+          </div>
+
+          <div class="card">
+            <h3>Telegram</h3>
+            <p class="muted">
+              Sends a photo when the dog gets on, and the video clip once it is
+              uploaded, for every camera on your account. The token is stored on
+              the server and never sent back to this page.
+            </p>
+            <label class="check"
+              ><input type="checkbox" id="tg-enabled" /> Enabled</label
+            >
+            <label
+              >Bot token <span class="hint" id="tg-token-hint"></span
+            ></label>
+            <input
+              type="password"
+              id="tg-token"
+              placeholder="Leave blank to keep current token"
+              autocomplete="off"
+            />
+            <label>Chat id</label>
+            <input type="text" id="tg-chat" placeholder="123456789" />
+            <label class="check"
+              ><input type="checkbox" id="tg-photo" checked /> Send
+              snapshot</label
+            >
+            <label class="check"
+              ><input type="checkbox" id="tg-video" checked /> Send video
+              clip</label
+            >
+            <div class="row">
+              <button id="btn-save-tg">Save</button>
+              <button id="btn-test-tg" class="secondary">
+                Test connection
+              </button>
+            </div>
+            <div id="tg-result" class="result hidden"></div>
+          </div>
+
+          <div class="card">
+            <h3>Password</h3>
+            <label>Current password</label>
+            <input
+              type="password"
+              id="pw-current"
+              autocomplete="current-password"
+            />
+            <label
+              >New password <span class="hint">(8+ characters)</span></label
+            >
+            <input type="password" id="pw-new" autocomplete="new-password" />
+            <button id="btn-save-pw">Change password</button>
+            <div id="pw-result" class="result hidden"></div>
+          </div>
+        </section>
+
+        <!-- ================= DEVICES ================= -->
+        <section id="tab-devices" class="panel">
+          <h2>Cameras</h2>
+          <p class="muted">
+            Each camera runs the agent on the computer it is plugged into. The
+            agent does detection locally and uploads events and clips here.
+          </p>
+          <div id="devices-list" class="devices-list"></div>
+
+          <div class="card">
+            <h3>Add a camera</h3>
+            <label for="new-device-name">Name</label>
+            <input
+              type="text"
+              id="new-device-name"
+              placeholder="Living room"
+              maxlength="100"
+            />
+            <button id="btn-add-device">Add camera</button>
+            <div id="token-box" class="token-box hidden">
+              <b>Copy this now &mdash; it is shown only once.</b>
+              <p class="hint" id="token-hint">
+                On the camera computer, in this project's folder, run:
+              </p>
+              <pre id="token-cmd"></pre>
+              <button id="btn-copy-token" class="small secondary">Copy</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
