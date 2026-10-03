@@ -32,7 +32,7 @@ def _print_found(found: list[cameras.Camera]) -> None:
               "close anything else using the camera (Teams, Zoom, Camera app).")
         return
 
-    print(f"\nFound {len(found)} camera(s):\n")
+    print(f"\nFound {len(found)} camera(s):\n", flush=True)
     for n, cam in enumerate(found, 1):
         print(f"  {n}. {cam.describe()}")
     if not cameras.names_are_authoritative():
@@ -64,7 +64,7 @@ def _choose_with_preview(found: list[cameras.Camera], config_path: str) -> int:
         flag = {"any": cv2.CAP_ANY,
                 "dshow": getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY),
                 "msmf": getattr(cv2, "CAP_MSMF", cv2.CAP_ANY)}.get(cam.backend, cv2.CAP_ANY)
-        print(f"Showing {current + 1}/{len(found)}: {cam.describe()}")
+        print(f"Showing {current + 1}/{len(found)}: {cam.describe()}", flush=True)
         c = cv2.VideoCapture(cam.index, flag)
         return c if c.isOpened() else None
 
