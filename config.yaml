@@ -30,6 +30,9 @@ debug:
   log_persons: false
 alert:
   play_sound: true
+  # Which built-in siren to play: builtin (two-tone beeps), wail, yelp,
+  # hi_lo or whoop. Hear them all with `python -m sirens`.
+  sound: builtin
   # Keep beeping this often (seconds) for as long as the dog is on the couch.
   # Set to 0 for a single beep when it gets on, then silence.
   repeat_sound_sec: 1
@@ -40,3 +43,8 @@ alert:
     enabled: false
     bot_token: ""
     chat_id: ""
+cloud:
+  # Where agent.py reports to. Can also be passed as --server or DFC_SERVER.
+  # The device token is NOT kept here (this file is committed); the agent
+  # saves it to instance/device_token.
+  server: ""

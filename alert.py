@@ -48,69 +48,27 @@ def save_snapshot(frame, snapshot_dir: str) -> str:
     return str(full_path)
 
 
-# Cached path to the generated alarm WAV, built once on first use.
-_ALARM_WAV = None
-
-
-def _build_alarm_wav(beeps=3, freq=1400.0, beep_ms=160, gap_ms=90, volume=0.85):
-    """Synthesize a short, loud two-tone alarm and cache it as a .wav.
+def get_alarm_wav(name: str = "builtin") -> str:
+    """Path to one of the built-in sirens, rendered on first use.
 
     Deliberately NOT a system sound: Windows' MessageBeep() plays whatever
     the user's sound scheme maps to, which is often something soft (or
     nothing at all), and a subtle chirp is useless as a dog deterrent.
-    A generated square wave is loud, unmistakable, and identical on every
-    machine regardless of the user's sound settings.
+    See sirens.py for the pack.
     """
-    import math
-    import struct
-    import tempfile
-    import wave
+    import sirens
 
-    rate = 44100
-    amp = int(32767 * max(0.0, min(1.0, volume)))
-    frames = bytearray()
-
-    def tone(f, ms):
-        n = int(rate * ms / 1000)
-        for i in range(n):
-            # Square wave -- far more piercing than a sine at equal amplitude.
-            v = amp if math.sin(2 * math.pi * f * i / rate) >= 0 else -amp
-            # Brief fade in/out so the edges don't click.
-            fade = min(1.0, i / 200.0, (n - i) / 200.0)
-            frames.extend(struct.pack("<h", int(v * fade)))
-
-    def silence(ms):
-        frames.extend(bytes(2 * int(rate * ms / 1000)))
-
-    for i in range(beeps):
-        # Alternate two pitches -- a warble carries better than one flat note.
-        tone(freq if i % 2 == 0 else freq * 0.75, beep_ms)
-        if i < beeps - 1:
-            silence(gap_ms)
-
-    dest = Path(tempfile.gettempdir()) / "dog_couch_alarm.wav"
-    with wave.open(str(dest), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(bytes(frames))
-    return str(dest)
+    return sirens.wav_path(name)
 
 
-def get_alarm_wav():
-    global _ALARM_WAV
-    if _ALARM_WAV is None or not Path(_ALARM_WAV).exists():
-        _ALARM_WAV = _build_alarm_wav()
-    return _ALARM_WAV
-
-
-def play_alert_sound(custom_wav=None):
+def play_alert_sound(custom_wav=None, builtin: str = "builtin"):
     """Best-effort local alert sound. Never raises and never blocks -- a
     missing audio backend shouldn't take down (or stall) the monitor."""
     try:
-        # A sound recorded in the dashboard wins; otherwise fall back to
-        # the synthesized alarm so there is always *something* audible.
-        wav = str(custom_wav) if custom_wav and Path(custom_wav).exists() else get_alarm_wav()
+        # A sound recorded in the dashboard wins; otherwise fall back to the
+        # chosen siren, so there is always *something* audible.
+        wav = (str(custom_wav) if custom_wav and Path(custom_wav).exists()
+               else get_alarm_wav(builtin))
 
         if sys.platform == "win32":
             import winsound  # type: ignore

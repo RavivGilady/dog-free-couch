@@ -1,8 +1,9 @@
 """
 Couch-zone geometry: is a detected dog box "on the couch"?
 
-The couch zone is a polygon (usually a quadrilateral) the user draws once
-with calibrate.py by clicking the couch's corners in the camera view.
+The couch zone is a polygon (usually a quadrilateral) the user draws once by
+clicking the couch's corners -- either on the live view in the dashboard or
+locally with calibrate.py. Either way it arrives here as pixels.
 "on the couch" is decided by how much of the dog's bounding box overlaps
 that polygon, not just whether a single point is inside it -- that makes it
 robust to a dog that's half on / half off the couch, or standing next to it
