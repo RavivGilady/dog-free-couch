@@ -147,7 +147,7 @@
               <button id="btn-test-sound" class="secondary">
                 Test alarm on camera
               </button>
-              <p class="hint">
+              <p class="hint" id="test-sound-hint">
                 Plays through the computer running the camera agent, not this
                 browser.
               </p>
@@ -199,8 +199,8 @@
 
           <h3>Library</h3>
           <p class="muted">
-            Sirens are generated on the camera, so they never have to be
-            downloaded.
+            An agent generates the sirens itself, so it never has to download
+            one; a camera station fetches them from here.
           </p>
           <div id="sounds-list" class="sounds-list">
             <p class="muted">Loading&hellip;</p>
@@ -214,8 +214,11 @@
           <div class="card">
             <h3>Alarm <span class="hint" id="al-device"></span></h3>
             <label class="check"
-              ><input type="checkbox" id="al-play" checked /> Play sound on the
-              camera computer</label
+              ><input type="checkbox" id="al-play" checked /><span
+                id="al-play-label"
+              >
+                Play sound on the camera computer</span
+              ></label
             >
             <label
               >Repeat every <b id="al-repeat-val">3</b>s while the dog is on the
@@ -332,13 +335,51 @@
         <section id="tab-devices" class="panel">
           <h2>Cameras</h2>
           <p class="muted">
-            Each camera runs the agent on the computer it is plugged into. The
-            agent does detection locally and uploads events and clips here.
+            A camera watches the couch where it stands &mdash; detection runs
+            there, and only events, clips and (while you are watching) frames
+            come here. That can be the agent on the computer the camera is
+            plugged into, or this browser itself.
           </p>
           <div id="devices-list" class="devices-list"></div>
 
           <div class="card">
-            <h3>Add a camera</h3>
+            <h3>Use this device as a camera</h3>
+            <p class="muted">
+              Turns the computer or phone you are reading this on into a camera
+              station: this tab watches through its camera, detects the dog
+              itself, and sounds the alarm out of these speakers. Nothing to
+              install.
+            </p>
+            <label for="station-name">Name</label>
+            <input
+              type="text"
+              id="station-name"
+              placeholder="Laptop by the couch"
+              maxlength="100"
+            />
+            <label for="station-cam">Camera</label>
+            <select id="station-cam"></select>
+            <div id="station-blocked" class="alert-error hidden"></div>
+            <button id="btn-station-start">Start camera here</button>
+            <p id="station-status" class="hint"></p>
+            <p class="hint">
+              Keep this tab open and the screen awake, and leave the device
+              plugged in &mdash; detection and an open camera are hungry. The
+              first start downloads the detection model (a few MB).
+            </p>
+            <div id="station-error" class="alert-error hidden"></div>
+            <!-- Dev runs only (see Config.DEV_MODE): the server says so in
+                 /api/auth/me, and app.js unhides this. -->
+            <div id="station-logs-box" class="row hidden">
+              <button id="btn-station-logs" class="small secondary">
+                Share logs
+              </button>
+              <span class="hint" id="station-logs-hint"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Add a camera on another computer</h3>
             <label for="new-device-name">Name</label>
             <input
               type="text"
@@ -358,10 +399,26 @@
           </div>
         </section>
       </main>
+
+      <!-- Always on screen while the station runs: the preview has to stay
+           visible for the browser to keep decoding frames from it, and it
+           doubles as the reminder that this tab is now a camera. -->
+      <div id="station-bar" class="station-bar hidden">
+        <div class="station-live">
+          <video id="station-video" muted playsinline autoplay></video>
+          <span id="station-badge" class="badge hidden">DOG ON COUCH</span>
+        </div>
+        <div class="station-info">
+          <strong id="station-title">This device</strong>
+          <span class="sub" id="station-sub">Starting&hellip;</span>
+        </div>
+        <button id="btn-station-stop" class="small ghost">Stop camera</button>
+      </div>
     </div>
 
     <div id="toast" class="toast hidden"></div>
 
+    <script src="/assets/station.js"></script>
     <script src="/assets/app.js"></script>
   </body>
 </html>

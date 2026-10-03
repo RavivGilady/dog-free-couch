@@ -16,13 +16,14 @@ import time
 import wave
 from pathlib import Path
 
-from flask import Blueprint, Response, abort, jsonify, request, send_file
+from flask import (Blueprint, Response, abort, current_app, jsonify, request,
+                   send_file)
 from sqlalchemy import func
 
 from . import telegram
 from .ext import (current_user, db, error, live, login_required, storage)
-from .models import (DEVICE_DEFAULTS, Device, Event, Sound, hash_token,
-                     new_device_token)
+from .models import (AGENT_KIND, BROWSER_KIND, DEVICE_DEFAULTS, DEVICE_KINDS,
+                     Device, Event, Sound, hash_token, new_device_token)
 from .storage import new_key
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -134,15 +135,46 @@ def list_devices():
 @bp.post("/devices")
 @login_required
 def create_device():
-    name = str((request.get_json(silent=True) or {}).get("name", "")).strip()[:100] or "Living room"
+    body = request.get_json(silent=True) or {}
+    kind = str(body.get("kind", AGENT_KIND))
+    if kind not in DEVICE_KINDS:
+        return error("unknown camera kind")
+    name = str(body.get("name", "")).strip()[:100] or (
+        "This browser" if kind == BROWSER_KIND else "Living room")
     token = new_device_token()
-    d = Device(user_id=current_user().id, name=name, token_hash=hash_token(token))
+    d = Device(user_id=current_user().id, name=name, kind=kind,
+               token_hash=hash_token(token))
     db().add(d)
     db().commit()
     # The only time the token is ever shown: we keep just its hash.
-    cmd, local = _agent_command()
-    return jsonify({"device": d.to_dict(), "token": token,
-                    "agent_cmd": cmd, "agent_cmd_local": local}), 201
+    payload = {"device": d.to_dict(), "token": token}
+    if kind == AGENT_KIND:
+        # A browser station has no command to paste: the page that asked for
+        # the camera is the one that will run it.
+        cmd, local = _agent_command()
+        payload.update(agent_cmd=cmd, agent_cmd_local=local)
+    return jsonify(payload), 201
+
+
+@bp.post("/devices/<int:device_id>/browser-token")
+@login_required
+def browser_token(device_id):
+    """Hand a device token to the camera station running in this page.
+
+    Nothing is copied by hand here: the station is already signed in as the
+    owner, so it just asks for a token when it starts and keeps it in memory
+    for as long as it runs. The call rotates, which is exactly what we want
+    -- one camera is driven by one tab, and a tab that lost the race finds
+    out on its next heartbeat (401) and stops itself, instead of two tabs
+    pushing frames and events for the same camera.
+    """
+    d = _own_device(device_id)
+    if d.kind != BROWSER_KIND:
+        return error("not a browser camera")
+    token = new_device_token()
+    d.token_hash = hash_token(token)
+    db().commit()
+    return jsonify({"token": token})
 
 
 @bp.patch("/devices/<int:device_id>")
@@ -245,6 +277,109 @@ def queue_command(device_id):
     d.commands_json = json.dumps(queued)
     db().commit()
     return jsonify({"ok": True, "online": d.online()})
+
+
+# --------------------------------------------------------------------------
+# station logs (dev only)
+# --------------------------------------------------------------------------
+
+MAX_LOG_LINES = 2000
+MAX_LOG_MESSAGE = 500
+# How many reports to keep on disk. These are a developer's scratch
+# material, not user data, so the oldest are simply dropped.
+KEEP_LOG_REPORTS = 50
+_LOG_LEVELS = ("info", "warn", "error")
+
+
+def _log_lines(raw) -> list[dict]:
+    """Validate a camera station's log buffer (see logLines() in station.js).
+
+    The page is the only thing that writes these, but it is still a
+    browser: nothing here is trusted. Lines are kept in order, capped in
+    count and length, and reduced to three known fields, so a report can
+    never become a way to park arbitrary data on the server.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("expected a list of log lines")
+    lines = []
+    for item in raw[-MAX_LOG_LINES:]:
+        if not isinstance(item, dict):
+            raise ValueError("bad log line")
+        level = str(item.get("level", "info"))
+        try:
+            ts = round(float(item.get("t") or 0), 3)
+        except (TypeError, ValueError):
+            ts = 0.0
+        lines.append({
+            "t": ts,
+            "level": level if level in _LOG_LEVELS else "info",
+            "msg": str(item.get("msg", ""))[:MAX_LOG_MESSAGE],
+        })
+    return lines
+
+
+@bp.post("/devices/<int:device_id>/logs")
+@login_required
+def share_station_logs(device_id):
+    """Take a camera station's log and write it next to the database.
+
+    Only on a dev run (Config.DEV_MODE): on a real deployment the endpoint
+    does not exist at all, which is why it 404s rather than 403s -- the
+    dashboard hides the button from the same flag, and a page left open
+    across a restart then gets the same answer as any other stranger.
+
+    One JSON file per report, named after the device and the moment it
+    arrived, so "it did nothing when the dog jumped up at 20:14" can be
+    read back later without a database round trip.
+    """
+    if not current_app.config["DFC"].DEV_MODE:
+        abort(404)
+    d = _own_device(device_id)
+    body = request.get_json(silent=True) or {}
+    try:
+        lines = _log_lines(body.get("lines"))
+    except (TypeError, ValueError) as e:
+        return error(f"bad logs: {e}")
+    if not lines:
+        return error("no log lines to share")
+
+    report = {
+        "device": {"id": d.id, "name": d.name, "kind": d.kind},
+        "user": current_user().email,
+        "received_at": time.time(),
+        "note": str(body.get("note", ""))[:500],
+        "user_agent": str(body.get("user_agent", ""))[:300],
+        "status": d.status,
+        "settings": d.settings,
+        "lines": lines,
+    }
+
+    directory = Path(current_app.config["DFC"].DATA_DIR) / "station-logs"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(report["received_at"]))
+    path = directory / f"{stamp}-device{d.id}.json"
+    # The button can be pressed twice in a second; don't let the second
+    # press quietly overwrite the first report.
+    nth = 2
+    while path.exists():
+        path = directory / f"{stamp}-device{d.id}-{nth}.json"
+        nth += 1
+    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _prune_log_reports(directory)
+
+    # The person who will read this is watching the terminal the dev server
+    # runs in, so point them straight at the file.
+    print(f"[logs] {len(lines)} line(s) from \"{d.name}\" -> {path}", file=sys.stderr)
+    return jsonify({"ok": True, "lines": len(lines), "file": path.name})
+
+
+def _prune_log_reports(directory: Path) -> None:
+    reports = sorted(directory.glob("*.json"))
+    for old in reports[:-KEEP_LOG_REPORTS]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
 
 
 @bp.get("/devices/<int:device_id>/stream.mjpg")

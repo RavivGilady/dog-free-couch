@@ -8,11 +8,24 @@
  * The one non-obvious piece is audio: MediaRecorder gives webm/opus, which
  * the agent's winsound/aplay cannot play, so the recording is decoded with
  * WebAudio and re-encoded to 16-bit PCM WAV here before upload.
+ *
+ * station.js is the other half of the Devices tab: a camera that is this
+ * browser rather than an agent somewhere. Everything else here treats such
+ * a camera like any other, because the server does too.
  */
 let CSRF = "";
 let devices = [];
 let deviceId = null;
 let eventsOffset = 0;
+/* Whether this server is a dev run (Config.DEV_MODE), which is the only
+ * thing that unhides the developer-only controls -- today "Share logs" on
+ * the camera station. The server decides; the page only obeys, and the
+ * endpoint behind the button is gated by the same flag. */
+let dev = false;
+/* The camera this tab has been running, remembered past Station.stop() so
+ * the logs of a run that ended (or never started) still have a camera to
+ * be filed under. */
+let stationDeviceId = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -176,6 +189,7 @@ async function boot() {
 
 async function enterApp(me) {
   CSRF = me.csrf_token;
+  dev = !!me.dev;
   $("#who").textContent = me.user.email;
   $("#auth-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
@@ -185,6 +199,9 @@ async function enterApp(me) {
 }
 
 $("#btn-logout").addEventListener("click", async () => {
+  // Signing out with the camera still running would leave a station whose
+  // events nobody in this page can see.
+  if (Station.isRunning()) await Station.stop();
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch (_) {}
@@ -215,7 +232,10 @@ function switchTab(name) {
   if (name === "events") loadEvents(true);
   if (name === "sound") loadSounds();
   if (name === "settings") loadSettings();
-  if (name === "devices") renderDevices();
+  if (name === "devices") {
+    renderDevices();
+    renderStationCard();
+  }
 }
 $$(".tab").forEach((btn) =>
   btn.addEventListener("click", () => switchTab(btn.dataset.tab)),
@@ -265,24 +285,33 @@ $("#device-pick").addEventListener("change", (e) => {
 function renderDevices() {
   const list = $("#devices-list");
   if (!devices.length) {
-    list.innerHTML = `<p class="muted">No cameras yet. Add one below, then start the agent on the computer it's plugged into.</p>`;
+    list.innerHTML = `<p class="muted">No cameras yet. Use this device as one below, or add a camera on the computer yours is plugged into.</p>`;
     return;
   }
   list.innerHTML = devices
-    .map(
-      (d) => `
+    .map((d) => {
+      const browser = d.kind === "browser";
+      const here = browser && Station.deviceId() === d.id;
+      // A browser camera has no token to copy and no agent to restart: it
+      // either runs in a tab or it doesn't, so that is what the row offers.
+      const actions = browser
+        ? here
+          ? `<button class="small secondary btn-stationstop">Stop camera</button>`
+          : `<button class="small secondary btn-stationrun">Start here</button>`
+        : `<button class="small secondary btn-rotate">New token</button>`;
+      return `
     <div class="device" data-id="${d.id}">
       <span class="dot ${d.online ? "live" : ""}"></span>
       <div>
-        <div class="name">${esc(d.name)}</div>
-        <div class="sub">${d.online ? "Online" : "Offline"} &middot; last seen ${fmtAgo(d.last_seen)}</div>
+        <div class="name">${esc(d.name)} <span class="kind">${browser ? "browser" : "agent"}</span></div>
+        <div class="sub">${here ? "Running in this tab" : d.online ? "Online" : "Offline"} &middot; last seen ${fmtAgo(d.last_seen)}</div>
       </div>
       <div class="spacer"></div>
       <button class="small secondary btn-rename">Rename</button>
-      <button class="small secondary btn-rotate">New token</button>
+      ${actions}
       <button class="small ghost btn-deldev">Delete</button>
-    </div>`,
-    )
+    </div>`;
+    })
     .join("");
 }
 
@@ -305,9 +334,15 @@ $("#devices-list").addEventListener("click", async (e) => {
         return;
       const r = await api(`/api/devices/${id}/token`, { method: "POST" });
       showToken(r.token, r.agent_cmd, r.agent_cmd_local);
+    } else if (e.target.classList.contains("btn-stationrun")) {
+      await startStation(dev);
+    } else if (e.target.classList.contains("btn-stationstop")) {
+      await Station.stop();
+      toast("Camera stopped");
     } else if (e.target.classList.contains("btn-deldev")) {
       if (!confirm(`Delete "${dev.name}" and all its events and clips?`))
         return;
+      if (Station.deviceId() === id) await Station.stop();
       await api(`/api/devices/${id}`, { method: "DELETE" });
     } else return;
     await loadDevices();
@@ -353,6 +388,202 @@ $("#btn-copy-token").addEventListener("click", async () => {
   } catch (_) {
     toast("Copy failed — select the text and copy it manually");
   }
+});
+
+/* ================= this browser as a camera ================= */
+/* The station itself lives in station.js; this is only its half of the UI.
+ * Once it is running it is a camera like any other, so the live view, the
+ * couch zone, the settings and the events tabs need nothing new. */
+
+async function renderStationCard() {
+  const why =
+    Station.supported() ||
+    (Station.isRunning()
+      ? "This tab is already a camera. Stop it first to start another one."
+      : null);
+  // Two boxes, two owners: this one says why starting isn't possible right
+  // now, #station-error says why the last attempt failed. Sharing one box
+  // means whichever renders last wins, and this one always renders last.
+  const blocked = $("#station-blocked");
+  $("#btn-station-start").disabled = !!why;
+  blocked.textContent = why || "";
+  blocked.classList.toggle("hidden", !why);
+
+  // Labels only arrive once the camera has been granted once, so before
+  // that this is a list of anonymous cameras -- still worth showing on a
+  // phone, where the choice is front or back.
+  const sel = $("#station-cam");
+  const cams = await Station.listCameras();
+  const html = ['<option value="">Default camera</option>']
+    .concat(
+      cams.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`),
+    )
+    .join("");
+  if (sel.dataset.html !== html) {
+    sel.innerHTML = html;
+    sel.dataset.html = html;
+  }
+  renderStationLogs();
+}
+
+/* The "Share logs" control: present only on a dev run, and only once this
+ * tab has something to share. The count is the honest answer to "did it
+ * log anything?" before the button is pressed. */
+function renderStationLogs() {
+  const box = $("#station-logs-box");
+  const lines = dev ? Station.logCount() : 0;
+  box.classList.toggle("hidden", !dev);
+  $("#btn-station-logs").disabled = !lines;
+  $("#station-logs-hint").textContent = lines
+    ? `${lines} line${lines === 1 ? "" : "s"} from this tab`
+    : "Nothing logged yet — start the camera here first.";
+}
+
+async function startStation(device) {
+  const err = $("#station-error");
+  err.textContent = "";
+  err.classList.add("hidden");
+  try {
+    stationDeviceId = device.id;
+    await Station.start({ device, cameraId: $("#station-cam").value || null });
+    deviceId = device.id;
+    try {
+      localStorage.setItem("dfc.device", String(deviceId));
+    } catch (_) {}
+    await loadDevices();
+    toast(`${device.name} is watching from this tab`);
+    // A new station has no couch zone, and without one nothing counts as
+    // being on the couch -- so send the user straight to where it is drawn.
+    if (!device.settings?.zone?.points?.length) switchTab("live");
+  } catch (e) {
+    err.textContent = e.message;
+    err.classList.remove("hidden");
+    toast("Could not start the camera");
+    throw e;
+  } finally {
+    if (activeTab === "devices") renderStationCard();
+  }
+}
+
+$("#btn-station-start").addEventListener("click", async () => {
+  const btn = $("#btn-station-start");
+  btn.disabled = true;
+  btn.textContent = "Starting…";
+  let created = null;
+  try {
+    const r = await api("/api/devices", {
+      json: { name: $("#station-name").value, kind: "browser" },
+    });
+    created = r.device;
+    await startStation(created);
+    $("#station-name").value = "";
+  } catch (e) {
+    // Don't leave behind a camera that never managed to start: a declined
+    // camera permission would otherwise litter the list.
+    if (created && !Station.isRunning()) {
+      try {
+        await api(`/api/devices/${created.id}`, { method: "DELETE" });
+      } catch (_) {}
+      stationDeviceId = null;
+      await loadDevices();
+    }
+    $("#station-error").textContent = e.message;
+    $("#station-error").classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Start camera here";
+    $("#station-status").textContent = "";
+    if (activeTab === "devices") {
+      renderDevices();
+      // Last word on the button: it stays disabled while this tab is a
+      // camera, and comes back once that camera is stopped.
+      renderStationCard();
+    }
+  }
+});
+
+$("#btn-station-stop").addEventListener("click", async () => {
+  await Station.stop();
+  toast("Camera stopped");
+  await loadDevices();
+  if (activeTab === "devices") {
+    renderDevices();
+    renderStationCard();
+  }
+});
+
+/* Send this tab's station log to the server, where it lands in
+ * data/station-logs/ as one JSON file for whoever is debugging to read.
+ *
+ * Which camera it is filed under: the one this tab has been running, if it
+ * still exists -- a start that failed takes its device with it, and the
+ * selected camera is then the least surprising place for the report, since
+ * the log lines name the device themselves either way. */
+function logsDeviceId() {
+  const known = (id) => devices.some((d) => d.id === id);
+  if (known(stationDeviceId)) return stationDeviceId;
+  if (known(deviceId)) return deviceId;
+  return devices[0]?.id ?? null;
+}
+
+$("#btn-station-logs").addEventListener("click", async () => {
+  const btn = $("#btn-station-logs");
+  const lines = Station.logLines();
+  if (!lines.length) return toast("Nothing logged in this tab yet");
+  const id = logsDeviceId();
+  if (!id) return toast("Add a camera first — logs are filed under one");
+
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    const r = await api(`/api/devices/${id}/logs`, {
+      json: { lines, user_agent: navigator.userAgent },
+    });
+    toast(`Sent ${r.lines} lines — data/station-logs/${r.file}`);
+  } catch (e) {
+    // The flag lives on the server, so a page left open across a restart
+    // can still be showing a button the endpoint no longer answers.
+    toast(
+      e.status === 404
+        ? "This server isn't running in dev mode — reload the page"
+        : `Could not share the logs: ${e.message}`,
+    );
+  } finally {
+    btn.textContent = "Share logs";
+    renderStationLogs();
+  }
+});
+
+/* Called on every status change, a few times a second while the station
+ * runs: text and classes only, nothing that reflows the page. */
+Station.onChange((st) => {
+  // Visible while starting too: opening the camera and downloading the
+  // model take seconds, and the preview appearing is the first sign the
+  // button did anything at all.
+  $("#station-bar").classList.toggle("hidden", !st.running && !st.starting);
+  $("#station-status").textContent = st.phase || "";
+  $("#station-title").textContent = st.device?.name || "This device";
+  if (st.starting) {
+    $("#station-sub").textContent = st.phase;
+    $("#station-sub").classList.remove("bad");
+    return;
+  }
+  const bits = [];
+  bits.push(
+    !st.camera_ok ? "no camera" : st.dog_on_couch ? "DOG ON COUCH" : "watching",
+  );
+  if (st.fps) bits.push(`${st.fps} fps`);
+  if (st.dogs_in_frame)
+    bits.push(`${st.dogs_in_frame} dog${st.dogs_in_frame > 1 ? "s" : ""}`);
+  if (st.recording) bits.push("recording");
+  if (st.upload_queue) bits.push(`${st.upload_queue} to upload`);
+  const sub = $("#station-sub");
+  sub.textContent = st.last_error || bits.join(" \u00b7 ");
+  sub.classList.toggle("bad", !!st.last_error);
+  $("#station-badge").classList.toggle("hidden", !st.dog_on_couch);
+  if (st.device?.id) stationDeviceId = st.device.id;
+  // Cheap, and the count climbs while the card is open.
+  if (activeTab === "devices") renderStationLogs();
 });
 
 /* ================= live ================= */
@@ -497,7 +728,10 @@ async function pollStatus() {
       // the feed is deliberately torn down until the user returns.
       if (online && wasOnline === false && !document.hidden) startStream(true);
       const empty = $("#stream-empty");
-      empty.textContent = `${d.name} is offline. Start the agent on its computer.`;
+      empty.textContent =
+        d.kind === "browser"
+          ? `${d.name} is offline. Open the dashboard on that device and start its camera.`
+          : `${d.name} is offline. Start the agent on its computer.`;
       empty.classList.toggle("hidden", online);
       $("#stream").classList.toggle("hidden", !online);
     }
@@ -1004,6 +1238,15 @@ async function loadSettings() {
   const label = d ? `for ${d.name}` : "(add a camera first)";
   $("#al-device").textContent = label;
   $("#v-device").textContent = label;
+  // Where "the camera computer" is depends on what kind of camera it is.
+  $("#al-play-label").textContent =
+    d?.kind === "browser"
+      ? " Play the alarm on the device running the camera tab"
+      : " Play sound on the camera computer";
+  $("#test-sound-hint").textContent =
+    d?.kind === "browser"
+      ? "Plays through the device running that camera's tab."
+      : "Plays through the computer running the camera agent, not this browser.";
   $("#btn-save-alert").disabled = $("#btn-save-video").disabled = !d;
   if (d) {
     const s = d.settings;

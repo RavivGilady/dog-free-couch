@@ -46,6 +46,14 @@ DEVICE_DEFAULTS = {
     },
 }
 
+# How a camera reports in. "agent" is agent.py running next to the camera;
+# "browser" is a dashboard tab acting as the camera itself (detection in
+# the browser, same agent API). The server treats them identically -- the
+# kind only changes what the dashboard offers to do with the device.
+AGENT_KIND = "agent"
+BROWSER_KIND = "browser"
+DEVICE_KINDS = (AGENT_KIND, BROWSER_KIND)
+
 TELEGRAM_DEFAULTS = {
     "enabled": False,
     "bot_token": "",
@@ -117,6 +125,8 @@ class Device(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(16), default=AGENT_KIND,
+                                      server_default=AGENT_KIND)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_seen: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -149,6 +159,7 @@ class Device(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "kind": self.kind or AGENT_KIND,
             "created_at": self.created_at,
             "last_seen": self.last_seen,
             "online": self.online(),
@@ -217,6 +228,29 @@ class Sound(Base):
         }
 
 
+def _add_new_columns(engine) -> None:
+    """Columns added after a database was first created.
+
+    create_all() only creates missing *tables*, so a column introduced by a
+    newer version never reaches an existing data/server.db. Each one gets a
+    single ALTER, which both SQLite and Postgres do in place. Keep every
+    entry nullable or defaulted, so adding it to rows already there means
+    nothing more than "the old behaviour".
+    """
+    from sqlalchemy import inspect, text
+
+    pending = [("devices", "kind",
+                f"VARCHAR(16) NOT NULL DEFAULT '{AGENT_KIND}'")]
+    insp = inspect(engine)
+    for table, column, spec in pending:
+        if not insp.has_table(table):
+            continue
+        if column in {c["name"] for c in insp.get_columns(table)}:
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {spec}"))
+
+
 def make_session_factory(url: str):
     kwargs = {}
     if url.startswith("sqlite"):
@@ -241,4 +275,5 @@ def make_session_factory(url: str):
             cur.close()
 
     Base.metadata.create_all(engine)
+    _add_new_columns(engine)
     return engine, scoped_session(sessionmaker(bind=engine, expire_on_commit=False))

@@ -4,7 +4,14 @@
     {
       "name": "server",
       "runtimeExecutable": "venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "server", "--port", "8000"],
+      "runtimeArgs": [
+        "-m",
+        "server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
       "port": 8000
     }
   ]
