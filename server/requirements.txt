@@ -1,0 +1,9 @@
+# Server only -- no OpenCV needed here; detection runs on the agent.
+flask>=3.0
+sqlalchemy>=2.0
+requests>=2.31
+gunicorn>=22.0
+# Optional: Postgres (DATABASE_URL=postgresql+psycopg://...)
+psycopg[binary]>=3.1
+# Optional: S3-compatible storage (STORAGE=s3)
+boto3>=1.34

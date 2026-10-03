@@ -39,6 +39,11 @@ point, `c` to clear, `q` to quit without saving.
 This writes the zone's coordinates into `config.yaml` under `zone.points`.
 Re-run this any time you move the camera or rearrange furniture.
 
+If you are running the server (step 5), you can skip this and draw the zone
+from your own computer instead -- on the live view in the dashboard, which is
+the only option when the camera is a headless Pi in another room. See
+[Drawing the couch zone from the dashboard](#drawing-the-couch-zone-from-the-dashboard).
+
 ## 3. Run the monitor
 
 ```bash
@@ -53,7 +58,8 @@ What happens on a confirmed "on the couch" event:
 
 - a snapshot is saved to `snapshots/`
 - a line is appended to `logs/events.csv` (timestamp, duration, confidence, snapshot path)
-- a short sound plays
+- a siren plays (pick one with `alert.sound` in `config.yaml`; hear them
+  all with `python -m sirens`)
 - if you've set up Telegram (below), a push notification is sent to your phone
 
 ### Tuning
@@ -105,73 +111,166 @@ camera:
 still seeing a frozen frame, it usually means index 0 isn't your real
 camera at all; `list_cameras.py` will find the right index.
 
-## 4. Web dashboard (recommended)
+## 4. Web dashboard: server + camera agent (recommended)
 
-    python app.py
+The dashboard is a website you can host online, with an account per person
+and any number of cameras per account. It has two parts:
 
-Then open <http://127.0.0.1:8080>. On first visit you set a dashboard
-password; it is hashed with werkzeug and stored in `instance/settings.json`,
-which is gitignored.
+```
+ home (laptop / Pi)                         internet (VPS / PaaS)
++----------------------+   HTTPS          +-------------------------+
+| agent.py             | ---------------> | server/  (Flask API)    |  <-- browser
+|  camera + detection  |  events, clips,  |  accounts, devices,     |      (frontend/,
+|  alarm sound         |  live frames     |  events DB, clip store, |       served by
+|  clip recording      | <--------------- |  Telegram notifications |       the server)
++----------------------+  settings, cmds  +-------------------------+
+```
+
+- **The agent** (`agent.py`) runs next to the camera. Detection, the alarm
+  and clip recording all happen there, so the alarm still works if the
+  internet is down; events and clips queue up and upload when it is back.
+  It only sends live video while someone has the Live tab open.
+- **The server** (`server/`) stores events and clips, serves them to their
+  owner only, relays the live view, pushes settings and "test alarm" to the
+  agent, and sends Telegram notifications.
+- **The frontend** (`frontend/`) is a static single-page app the server
+  serves at `/`.
+
+### Try it locally
+
+```bash
+pip install -r server/requirements.txt
+python -m server                      # http://127.0.0.1:8000
+```
+
+Open it, create an account, go to **Devices**, add a camera. The page shows
+a command with a one-time token; run it in a second terminal on the camera
+machine:
+
+```bash
+python agent.py --server http://127.0.0.1:8000 --token dfc_...
+```
+
+The token is saved to `instance/device_token`, so afterwards
+`python agent.py --server ...` is enough (or put the URL in `config.yaml`
+under `cloud.server`).
 
 The dashboard gives you:
 
-* **Live** - the camera feed with the couch zone and detection boxes drawn
-  on it, plus live stats and a "test alarm" button.
-* **Events** - every alert with its snapshot and a playable video clip.
-* **Sound** - record a custom alert through your browser mic (say whatever
-  actually works on your dog) and set it as the alarm.
-* **Settings** - Telegram credentials, alarm repeat interval, clip lengths,
-  and password change.
+- **Live** - the camera feed with the couch zone and detection boxes, live
+  stats, a "test alarm" button that plays on the camera computer, and the
+  couch zone editor.
+- **Events** - every alert with its snapshot and a playable clip, per
+  camera or across all cameras.
+- **Sound** - choose one of the built-in sirens (wail, yelp, hi-lo horn,
+  whoop, or the original two-tone beeps), or record a custom alert through
+  your browser mic and send it to the selected camera.
+- **Settings** - alarm repeat and clip lengths (per camera), Telegram and
+  password (per account).
+- **Devices** - add, rename and remove cameras; issue a new token.
 
-To reach it from your phone on the same wifi:
+### Drawing the couch zone from the dashboard
 
-    python app.py --host 0.0.0.0
+On the **Live** tab, click **Draw couch zone** and click the couch's corners
+in the video, going around it. Drag a corner to move it, double-click one to
+remove it, and use the slider to set how much of the dog has to be inside to
+count. **Save zone** sends it to the camera, which picks it up on its next
+heartbeat -- a second or two, no restart.
+
+The corners are stored as fractions of the frame rather than pixels, because
+the browser only ever sees a scaled copy of the video. A side effect worth
+having: changing the camera's resolution does not invalidate the zone.
+
+Two things to know while editing:
+
+- The orange outline burned into the video is the zone the camera is using
+  now; the dashed green one is what you are drawing. They swap over a second
+  or two after you save.
+- A camera already calibrated with `calibrate.py` reports that zone to the
+  dashboard, so the editor opens on it and you can adjust it rather than
+  start over. Once you save from the dashboard, that zone wins and
+  `config.yaml`'s `zone.points` is no longer consulted (it stays as a
+  fallback for a camera with no server zone, and for `monitor.py`).
+
+### Deploy online
+
+**Any VPS with Docker** (simplest, includes automatic HTTPS):
+
+1. Point a DNS record such as `couch.example.com` at the server.
+2. Create `.env` next to `docker-compose.yml`:
+   ```
+   DOMAIN=couch.example.com
+   SECRET_KEY=<python -c "import secrets; print(secrets.token_urlsafe(48))">
+   ```
+3. `docker compose up -d`
+
+Caddy gets a TLS certificate automatically. Data (SQLite db and clips)
+lives in the `couch-data` volume.
+
+**A PaaS** (Render, Railway, Fly.io...): deploy the `Dockerfile` and set
+the environment variables below. These hosts usually wipe the container
+disk on redeploy, so either attach a persistent volume at `/data` or use
+Postgres + S3.
+
+| Variable                                    | Default                     | Meaning                                                                        |
+| ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
+| `SECRET_KEY`                                | generated (dev only)        | Signs session cookies. **Required** in production.                             |
+| `DATABASE_URL`                              | `sqlite:////data/server.db` | e.g. `postgresql+psycopg://user:pw@host/db`                                    |
+| `STORAGE`                                   | `local`                     | `s3` to keep media in a bucket (AWS, Cloudflare R2, Backblaze B2, MinIO)       |
+| `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION` |                             | Bucket settings; credentials via `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
+| `MEDIA_DIR`                                 | `/data/media`               | Where media goes with `STORAGE=local`                                          |
+| `ALLOW_SIGNUP`                              | `1`                         | `0` closes registration once your household has accounts                       |
+| `RETENTION_DAYS`                            | `30`                        | Events and clips older than this are deleted; `0` keeps forever                |
+| `TRUST_PROXY`                               | `0`                         | `1` behind a reverse proxy / PaaS router (real client IPs, https)              |
+| `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
+| `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
+
+**Run one server process.** The live view keeps the latest frame of each
+camera in memory, so the image runs a single gunicorn worker with many
+threads. That comfortably serves a household or a few dozen users; going
+beyond that would mean moving the live relay to Redis.
 
 ### Important: one process owns the camera
 
-A camera can only be opened by one process at a time. `app.py` runs the
-detection loop itself, so **run either `app.py` or `monitor.py`, not both**.
-`monitor.py` still exists for a headless box with no web UI.
+A camera can only be opened by one process at a time, so **run either
+`agent.py` or `monitor.py`, not both**. `monitor.py` still exists for a
+standalone box with no server at all.
 
 ### Video clips
 
 Clips include a few seconds of **pre-roll** from before the alert fired, so
 you see the dog actually getting on rather than already sitting there. The
 codec is probed at startup: H.264 where available (all browsers play it),
-falling back to WebM/VP8. Adjust pre-roll, post-roll and the length cap in
-Settings.
+falling back to WebM/VP8. After a successful upload the agent deletes its
+local copy (pass `--keep-local` to keep it).
 
 ### Security
 
-The dashboard is HTTP only. Passwords are hashed, sessions are signed and
-HttpOnly, POSTs are CSRF-protected, and logins are rate-limited after 8
-failures. That is appropriate for your own machine or a trusted home
-network. **Before exposing it to the internet, put it behind a reverse proxy
-with TLS** (Caddy gets you an automatic certificate in about three lines).
-Without TLS, your password crosses the network in the clear.
-
-Note that browsers only allow microphone access on `localhost` or over
-HTTPS, so recording a custom sound from your phone over plain LAN HTTP will
-be blocked by the browser - record it on the host, or set up TLS.
+- Passwords are hashed; sessions are signed, HttpOnly cookies; every
+  state-changing request needs a CSRF token; logins are rate-limited.
+- Every query is scoped to the signed-in account: one user can't see,
+  stream or delete another's cameras, events, clips or sounds (covered by
+  `tests/test_server.py`).
+- Each agent authenticates with its own random device token. The server
+  keeps only a hash of it, and "New token" revokes the old one instantly.
+- Telegram bot tokens live in the server database; they are never sent back
+  to the browser or stored on the camera.
+- **Always serve it over HTTPS** online (the compose file does). The agent
+  warns if pointed at a remote `http://` URL. Browsers also only allow
+  microphone recording on HTTPS or localhost.
 
 ## 5. Optional: push notifications to your phone (Telegram)
-
-This works from a laptop or later from a headless Raspberry Pi, and takes
-about 2 minutes:
 
 1. In Telegram, message **@BotFather**, send `/newbot`, and follow the
    prompts. You'll get a bot token (looks like `123456:ABC-DEF...`).
 2. Message your new bot anything (so it's allowed to message you back).
 3. Visit `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser
    and find `"chat":{"id": ...}` in the response -- that's your chat id.
-4. In `config.yaml`, set:
-   ```yaml
-   alert:
-     telegram:
-       enabled: true
-       bot_token: "123456:ABC-DEF..."
-       chat_id: "123456789"
-   ```
+4. Enter both in the dashboard under **Settings > Telegram** and press
+   "Test connection". The server then sends a photo when the dog gets on the
+   couch and the clip once it is uploaded, for every camera on the account.
+
+(Standalone `monitor.py` still reads `alert.telegram` from `config.yaml`.)
 
 ## 6. Moving to a Raspberry Pi later
 
@@ -188,37 +287,43 @@ they're reading from -- only `camera.py` does. To switch:
    camera:
      backend: picamera2
    ```
-3. Re-run `python calibrate.py` from the Pi (the camera's field of view
-   will differ from your laptop's), then `python monitor.py --headless`
+3. Redraw the couch zone for the Pi's camera -- its field of view will
+   differ from your laptop's. Easiest from the dashboard's Live tab, since
+   a headless Pi cannot show `calibrate.py`'s window. Then
+   `python agent.py --server https://your-site` (or `python monitor.py --headless`)
    if the Pi has no monitor attached (this skips the preview window but
    keeps logging/snapshots/sound/Telegram working).
 
 A Pi 4 or better runs MobileNet-SSD comfortably in real time on CPU; no
 GPU or Coral accelerator needed for this use case.
 
-Telegram is now configured from the dashboard's Settings tab rather than
-config.yaml, so the bot token never lands in a committed file.
-
 ## Project layout
 
 ```
+agent.py        # camera agent: runs detection and reports to the server
+cloud_client.py # agent <-> server: heartbeat, upload queue, live frames
+service.py      # the detection loop (camera -> detector -> zone -> debounce)
+recorder.py     # ring-buffered clip recorder with pre-roll
 camera.py       # camera backends: OpenCV webcam today, picamera2 on a Pi later
 detector.py     # MobileNet-SSD wrapper -- finds "dog" boxes in a frame
 zone.py         # geometry: how much of a box overlaps the couch polygon
 debounce.py     # turns noisy per-frame readings into clean enter/leave events
-alert.py        # logging, snapshots, sound, Telegram
+alert.py        # snapshots, local alarm playback, Telegram, CSV log
+sirens.py       # the built-in sirens, synthesized (python -m sirens to hear)
+sounds.py       # local cache of alert sounds downloaded from the server
 calibrate.py    # one-time tool to draw the couch zone
-monitor.py      # main loop, ties everything together
-download_model.py
-config.yaml
-tests/          # unit tests for zone.py and debounce.py (no camera needed)
+monitor.py      # standalone loop with no server (local window, Telegram)
+server/         # web backend (Flask + SQLAlchemy): API, storage, live relay
+frontend/       # dashboard (static HTML/JS/CSS, served by the server)
+Dockerfile, docker-compose.yml, Caddyfile   # deployment
+tests/
 ```
 
 Run the tests any time with:
 
 ```bash
-python tests/test_zone.py
-python tests/test_debounce.py
+pip install pytest -r requirements.txt -r server/requirements.txt
+python -m pytest tests
 ```
 
 ## Known limitations
@@ -234,5 +339,7 @@ python tests/test_debounce.py
   couch and floor overlap in the frame could cause false positives. Placing
   the camera to look across the couch (not straight down its length) gives
   the cleanest zone.
-- One camera only. Multiple couches/rooms would mean running a second
-  instance with its own config and camera index.
+- One camera per agent. For a second room, add another device in the
+  dashboard and run a second agent with its own config and token
+  (`python agent.py --config room2.yaml` with `DFC_TOKEN` set, since the
+  saved `instance/device_token` belongs to the first one).

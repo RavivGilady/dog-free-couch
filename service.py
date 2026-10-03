@@ -1,15 +1,16 @@
 """
-MonitorService: the detection loop, wrapped so it can run under a web server.
+MonitorService: the detection loop, wrapped so it can run alongside the
+agent's network threads.
 
-Only one process can hold a camera open, so when the dashboard is running it
-owns the camera and everything else -- the live stream, the recorder, the
-alerts -- reads from this one loop. monitor.py still works standalone for a
-headless box; it just does not get the web UI.
+Only one process can hold a camera open, so the agent owns the camera and
+everything else -- the live view, the recorder, the alerts -- reads from this
+one loop. monitor.py still works standalone for a box with no server.
 
-Everything the dashboard can change at runtime (active sound, Telegram
-credentials, whether video is recorded) is read from SettingsStore on each
-use rather than captured at startup, so a settings change takes effect on
-the next event without a restart.
+`store` and `settings` are the cloud_client.RemoteStore / RemoteSettings
+adapters. Settings (active sound, whether video is recorded, the couch zone)
+are read on each use rather than captured at startup, so a change made in
+the dashboard takes effect on the next event -- or, for the zone, the next
+frame -- without a restart.
 """
 from __future__ import annotations
 
@@ -49,11 +50,19 @@ class MonitorService:
             "recording": False,
             "last_error": None,
             "started_at": None,
+            "zone_points": [],
         }
 
         zone_cfg = config.get("zone", {})
+        # Pixel polygon, the one detection and the overlay actually use.
         self.zone_points = [tuple(p) for p in zone_cfg.get("points", [])]
         self.overlap_threshold = zone_cfg.get("overlap_threshold", 0.35)
+        # A zone drawn in the dashboard arrives as fractions of the frame and
+        # is scaled to pixels once a frame has told us the real size.
+        # None means no dashboard zone: the config.yaml one stands.
+        self._zone_norm = None
+        self._zone_frame = None     # frame size the pixel zone was built for
+        self._zone_published = None
 
         d = config.get("debounce", {})
         self.tracker = CouchSessionTracker(
@@ -101,10 +110,46 @@ class MonitorService:
         with self._frame_lock:
             return None if self._latest_raw is None else self._latest_raw.copy()
 
+    def apply_video_settings(self, v: dict) -> None:
+        from collections import deque
+        r = self.recorder
+        with r._lock:
+            if "pre_roll_sec" in v and v["pre_roll_sec"] != r.pre_roll_sec:
+                r.pre_roll_sec = v["pre_roll_sec"]
+                r._buffer = deque(r._buffer, maxlen=max(1, int(r.fps * r.pre_roll_sec)))
+            r.max_clip_sec = v.get("max_clip_sec", r.max_clip_sec)
+            r.post_roll_sec = v.get("post_roll_sec", r.post_roll_sec)
+
     def update_zone(self, points, overlap_threshold=None) -> None:
-        self.zone_points = [tuple(p) for p in points]
+        """Replace the couch polygon with one drawn in the dashboard.
+
+        `points` are (x, y) fractions of the frame, 0..1, because the browser
+        draws on a scaled JPEG and never knows the camera's pixels. They are
+        scaled on the next frame, so a resolution change needs no redraw.
+        """
+        self._zone_norm = [(float(x), float(y)) for x, y in points]
+        self._zone_frame = None
         if overlap_threshold is not None:
-            self.overlap_threshold = overlap_threshold
+            self.overlap_threshold = float(overlap_threshold)
+
+    def _resolve_zone(self, shape) -> None:
+        """Scale a dashboard zone to this frame, and publish whichever zone
+        is in effect (dashboard or config.yaml) as fractions, for the editor
+        in the dashboard to start from."""
+        h, w = shape[:2]
+        if not (w and h):
+            return
+        if self._zone_norm is not None and self._zone_frame != (w, h):
+            self.zone_points = [(min(w - 1, max(0, round(x * w))),
+                                 min(h - 1, max(0, round(y * h))))
+                                for x, y in self._zone_norm]
+            self._zone_frame = (w, h)
+
+        key = (w, h, tuple(self.zone_points))
+        if key != self._zone_published:
+            self._zone_published = key
+            self.status["zone_points"] = [[round(x / w, 5), round(y / h, 5)]
+                                          for x, y in self.zone_points]
 
     # ---------- the loop ----------
 
@@ -140,6 +185,7 @@ class MonitorService:
                     time.sleep(0.5)
                     continue
                 self.status["camera_ok"] = True
+                self._resolve_zone(frame.shape)
 
                 wanted = {"dog", "person"} if log_persons else {"dog"}
                 detections = self._detector.detect(frame, wanted_labels=wanted)
@@ -263,7 +309,8 @@ class MonitorService:
         repeat = a.get("repeat_sound_sec", 3) or 0
         now = time.time()
         if now - self._last_sound_time >= repeat:
-            play_alert_sound(custom_wav=sounds.resolve(a.get("active_sound", "builtin")))
+            chosen = a.get("active_sound", "builtin")
+            play_alert_sound(custom_wav=sounds.resolve(chosen), builtin=chosen)
             self._last_sound_time = now if repeat else float("inf")
 
     # ---------- drawing ----------

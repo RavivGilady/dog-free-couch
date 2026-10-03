@@ -2,6 +2,11 @@
 One-time setup: click the corners of the couch in your camera view so the
 monitor knows what "on the couch" means for your room.
 
+Needs a display on the machine the camera is plugged into. If you run the
+server, the dashboard's Live tab draws the same zone from your own computer
+instead, which is the only way round for a headless Pi -- and a zone saved
+there takes precedence over the one this writes to config.yaml.
+
 Usage:
     python calibrate.py [--config config.yaml]
 
