@@ -244,6 +244,54 @@ codec is probed at startup: H.264 where available (all browsers play it),
 falling back to WebM/VP8. After a successful upload the agent deletes its
 local copy (pass `--keep-local` to keep it).
 
+#### Sound in the clips
+
+Clips are recorded with sound from a microphone on the camera machine --
+the whine before the jump, and your own voice on the alarm. It needs two
+things the detection itself does not:
+
+```bash
+pip install sounddevice      # on Linux also: sudo apt install -y libportaudio2
+```
+
+plus **ffmpeg** on `PATH` (`winget install ffmpeg`, `brew install ffmpeg`,
+`sudo apt install -y ffmpeg`), because OpenCV can only write video -- the
+audio is muxed in once the clip is closed. Set `DFC_FFMPEG` instead if it
+lives somewhere off `PATH`.
+
+Check both halves, and list the input devices, with:
+
+```bash
+python -m audio
+```
+
+Then in `config.yaml`:
+
+```yaml
+audio:
+  enabled: true
+  device:          # empty = system default, or an index/name from the list
+  sample_rate: 44100
+  channels: 1
+```
+
+The buffer holds a little more than one full-length clip, so raising
+`max_clip_sec` costs memory on the camera machine: ~88KB per second at
+44.1kHz mono, i.e. ~5MB for the default 60s clip and ~54MB at the 600s
+maximum. Drop `sample_rate` to 16000 if that matters on a small Pi -- a dog
+and a doorbell are perfectly recognisable at 16kHz.
+
+If the mic or ffmpeg is missing, clips are still recorded -- just silent,
+and the dashboard's **Clip sound** reads `Silent` rather than `On`. Nothing
+is ever recorded between events: the microphone feeds the same rolling
+buffer the video pre-roll uses, and only the stretch belonging to a clip is
+ever written to disk.
+
+One side effect worth knowing: the muxed clip plays back at the frame rate
+the camera really achieved rather than the configured one, so clips with
+sound are no longer slightly fast or slow. That is the only way the audio
+can stay in sync, and it makes the duration honest.
+
 ### Security
 
 - Passwords are hashed; sessions are signed, HttpOnly cookies; every
@@ -304,6 +352,7 @@ agent.py        # camera agent: runs detection and reports to the server
 cloud_client.py # agent <-> server: heartbeat, upload queue, live frames
 service.py      # the detection loop (camera -> detector -> zone -> debounce)
 recorder.py     # ring-buffered clip recorder with pre-roll
+audio.py        # mic capture + ffmpeg mux, so clips have sound (python -m audio)
 camera.py       # camera backends: OpenCV webcam today, picamera2 on a Pi later
 detector.py     # MobileNet-SSD wrapper -- finds "dog" boxes in a frame
 zone.py         # geometry: how much of a box overlaps the couch polygon

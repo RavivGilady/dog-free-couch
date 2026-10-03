@@ -29,7 +29,7 @@ _VIDEO_EXT = {".mp4", ".webm", ".avi"}
 # "zone_points" is the polygon the agent is actually using, as fractions of
 # the frame: for a camera set up with calibrate.py it is the only way the
 # dashboard can show that zone and let it be edited rather than redrawn.
-_STATUS_KEYS = ("running", "camera_ok", "dog_on_couch", "dogs_in_frame",
+_STATUS_KEYS = ("running", "camera_ok", "audio_ok", "dog_on_couch", "dogs_in_frame",
                 "persons_in_frame", "fps", "recording", "last_error", "started_at",
                 "upload_queue", "zone_points")
 

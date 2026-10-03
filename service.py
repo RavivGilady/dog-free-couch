@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 
+import audio
 from alert import (log_event, play_alert_sound, save_snapshot,
                    send_telegram_alert, send_telegram_video)
 from camera import get_camera
@@ -43,6 +44,7 @@ class MonitorService:
         self.status = {
             "running": False,
             "camera_ok": False,
+            "audio_ok": False,
             "dog_on_couch": False,
             "dogs_in_frame": 0,
             "persons_in_frame": 0,
@@ -72,12 +74,16 @@ class MonitorService:
         )
 
         v = settings.all().get("video", {})
+        # The mic is opened with the camera, in _run, so a missing audio
+        # device can't stop the service from being constructed.
+        self.mic = audio.from_config(config)
         self.recorder = ClipRecorder(
             out_dir=config.get("alert", {}).get("video_dir", "videos"),
             fps=config.get("camera", {}).get("fps", 15),
             pre_roll_sec=v.get("pre_roll_sec", 4),
             max_clip_sec=v.get("max_clip_sec", 60),
             post_roll_sec=v.get("post_roll_sec", 3),
+            mic=self.mic,
         )
 
         self._detector = None
@@ -98,6 +104,9 @@ class MonitorService:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5)
+        # The loop closes the clip on its way out; the sound is added after
+        # that, on a daemon thread, so it needs waiting for here.
+        self.recorder.wait_for_finalize()
         self.status["running"] = False
 
     # ---------- frame access for the web UI ----------
@@ -119,6 +128,7 @@ class MonitorService:
                 r._buffer = deque(r._buffer, maxlen=max(1, int(r.fps * r.pre_roll_sec)))
             r.max_clip_sec = v.get("max_clip_sec", r.max_clip_sec)
             r.post_roll_sec = v.get("post_roll_sec", r.post_roll_sec)
+        r.size_audio_history()  # not under r._lock: the mic takes its own
 
     def update_zone(self, points, overlap_threshold=None) -> None:
         """Replace the couch polygon with one drawn in the dashboard.
@@ -169,6 +179,12 @@ class MonitorService:
             self.status["running"] = False
             print(f"[service] startup failed: {e}", file=sys.stderr)
             return
+
+        # Sound is a bonus, not a precondition: a mic that won't open is
+        # reported in the status and the clips are written silent.
+        if self.mic and not self.mic.start():
+            self.recorder.mic = self.mic = None
+        self.status["audio_ok"] = bool(self.mic)
 
         self.status.update({"running": True, "camera_ok": True,
                             "started_at": time.time(), "last_error": None})
@@ -238,6 +254,9 @@ class MonitorService:
             self.recorder.finish_now()
             if self._camera:
                 self._camera.release()
+            if self.mic:
+                self.mic.stop()
+            self.status["audio_ok"] = False
             self.status["running"] = False
 
     # ---------- events ----------
