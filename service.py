@@ -11,6 +11,14 @@ adapters. Settings (active sound, whether video is recorded, the couch zone)
 are read on each use rather than captured at startup, so a change made in
 the dashboard takes effect on the next event -- or, for the zone, the next
 frame -- without a restart.
+
+Two threads, on purpose. Capture (grab -> annotate -> JPEG) runs in one and
+detection in the other, because a MobileNet-SSD forward pass costs tens to
+hundreds of milliseconds on CPU: with both in a single loop the live view
+could only ever be as fast as inference, which made it crawl. The detector
+now always works on the newest frame and silently skips the ones it could
+not keep up with, while the live view runs at the camera's own frame rate
+and reuses the most recent boxes until fresh ones arrive.
 """
 from __future__ import annotations
 
@@ -35,10 +43,23 @@ class MonitorService:
         self.settings = settings
 
         self._thread = None
+        self._detect_thread = None
         self._stop = threading.Event()
-        self._frame_lock = threading.Lock()
+
+        # Published frames. The condition lets a live-view reader block until
+        # a new frame exists instead of polling on a timer, which kept a
+        # frame-rate ceiling (and avoidable latency) in the live view.
+        self._frame_cv = threading.Condition()
         self._latest_jpeg = None
         self._latest_raw = None
+        self._frame_seq = 0
+
+        # Hand-off to the detector: always just the newest frame.
+        self._detect_cv = threading.Condition()
+        self._detect_frame = None
+        # Last known boxes, reused by the capture loop between detections.
+        # Only ever replaced wholesale, never mutated, so readers need no lock.
+        self._boxes = []
 
         self.status = {
             "running": False,
@@ -46,7 +67,8 @@ class MonitorService:
             "dog_on_couch": False,
             "dogs_in_frame": 0,
             "persons_in_frame": 0,
-            "fps": 0.0,
+            "fps": 0.0,         # live view / capture rate
+            "detect_fps": 0.0,  # how often detection actually runs
             "recording": False,
             "last_error": None,
             "started_at": None,
@@ -71,10 +93,18 @@ class MonitorService:
             min_alert_interval_sec=d.get("min_alert_interval_sec", 30),
         )
 
+        # Clips are written at their own frame rate, independent of how fast
+        # the camera is read, and fed at exactly that rate below -- otherwise
+        # a 30fps capture written as a 15fps file plays back at double speed.
+        self.clip_fps = float(config.get("alert", {}).get("video_fps", 15))
+        # Detection gets a ceiling so it cannot eat every core and starve the
+        # capture thread. 0 means "as fast as the machine manages".
+        self.max_detect_fps = float(config.get("model", {}).get("max_detect_fps", 12) or 0)
+
         v = settings.all().get("video", {})
         self.recorder = ClipRecorder(
             out_dir=config.get("alert", {}).get("video_dir", "videos"),
-            fps=config.get("camera", {}).get("fps", 15),
+            fps=self.clip_fps,
             pre_roll_sec=v.get("pre_roll_sec", 4),
             max_clip_sec=v.get("max_clip_sec", 60),
             post_roll_sec=v.get("post_roll_sec", 3),
@@ -96,18 +126,35 @@ class MonitorService:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=5)
+        # Both threads park on a condition, so signal them rather than waiting
+        # out their timeouts.
+        with self._detect_cv:
+            self._detect_cv.notify_all()
+        with self._frame_cv:
+            self._frame_cv.notify_all()
+        for t in (self._thread, self._detect_thread):
+            if t:
+                t.join(timeout=5)
         self.status["running"] = False
 
     # ---------- frame access for the web UI ----------
 
-    def latest_jpeg(self):
-        with self._frame_lock:
-            return self._latest_jpeg
+    def wait_for_jpeg(self, last_seq: int, timeout: float = 5.0):
+        """Block until a frame newer than `last_seq` is published.
+
+        Returns (jpeg, seq), or (None, last_seq) if nothing new arrived in
+        `timeout` -- which lets the caller notice a dead camera (or a gone
+        client) instead of blocking forever.
+        """
+        with self._frame_cv:
+            if self._frame_seq == last_seq:
+                self._frame_cv.wait(timeout)
+                if self._frame_seq == last_seq:
+                    return None, last_seq
+            return self._latest_jpeg, self._frame_seq
 
     def snapshot_now(self):
-        with self._frame_lock:
+        with self._frame_cv:
             return None if self._latest_raw is None else self._latest_raw.copy()
 
     def apply_video_settings(self, v: dict) -> None:
@@ -151,9 +198,10 @@ class MonitorService:
             self.status["zone_points"] = [[round(x / w, 5), round(y / h, 5)]
                                           for x, y in self.zone_points]
 
-    # ---------- the loop ----------
+    # ---------- the loops ----------
 
     def _run(self) -> None:
+        """Capture loop: read, annotate with the latest boxes, publish."""
         import cv2
 
         model_cfg = self.config.get("model", {})
@@ -172,8 +220,14 @@ class MonitorService:
 
         self.status.update({"running": True, "camera_ok": True,
                             "started_at": time.time(), "last_error": None})
-        log_persons = self.config.get("debug", {}).get("log_persons", False)
+
+        self._detect_thread = threading.Thread(target=self._detect_loop,
+                                               name="detector", daemon=True)
+        self._detect_thread.start()
+
+        jpeg_quality = int(self.config.get("display", {}).get("jpeg_quality", 70))
         frame_times = []
+        next_clip_frame = 0.0
 
         try:
             while not self._stop.is_set():
@@ -187,7 +241,67 @@ class MonitorService:
                 self.status["camera_ok"] = True
                 self._resolve_zone(frame.shape)
 
-                wanted = {"dog", "person"} if log_persons else {"dog"}
+                # Hand the detector the newest frame. If it is still busy, the
+                # previous one is simply dropped -- stale detections are worse
+                # than missed ones, and this is what keeps capture independent.
+                with self._detect_cv:
+                    self._detect_frame = frame
+                    self._detect_cv.notify()
+
+                # Clips get frames at clip_fps, not at the capture rate, so
+                # they play back at real speed.
+                if t0 >= next_clip_frame:
+                    self.recorder.feed(frame)
+                    next_clip_frame = max(t0, next_clip_frame) + 1.0 / self.clip_fps
+                self.status["recording"] = self.recorder.recording
+
+                annotated = self._annotate(frame.copy(), self._boxes)
+                ok, buf = cv2.imencode(".jpg", annotated,
+                                       [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                if ok:
+                    with self._frame_cv:
+                        self._latest_jpeg = buf.tobytes()
+                        self._latest_raw = frame
+                        self._frame_seq += 1
+                        self._frame_cv.notify_all()
+
+                frame_times.append(time.time() - t0)
+                if len(frame_times) > 30:
+                    frame_times.pop(0)
+                avg = sum(frame_times) / len(frame_times)
+                self.status["fps"] = round(1.0 / avg, 1) if avg > 0 else 0.0
+
+        except Exception as e:
+            self.status["last_error"] = str(e)
+            print(f"[service] capture loop crashed: {e}", file=sys.stderr)
+        finally:
+            # The detector has nothing left to read once the camera is gone.
+            self._stop.set()
+            with self._detect_cv:
+                self._detect_cv.notify_all()
+            self.recorder.finish_now()
+            if self._camera:
+                self._camera.release()
+            self.status["running"] = False
+
+    def _detect_loop(self) -> None:
+        """Detection loop: newest frame in, boxes and events out."""
+        log_persons = self.config.get("debug", {}).get("log_persons", False)
+        wanted = {"dog", "person"} if log_persons else {"dog"}
+        min_interval = 1.0 / self.max_detect_fps if self.max_detect_fps else 0.0
+        detect_times = []
+        last_start = None
+
+        try:
+            while not self._stop.is_set():
+                with self._detect_cv:
+                    while self._detect_frame is None and not self._stop.is_set():
+                        self._detect_cv.wait(0.25)
+                    frame, self._detect_frame = self._detect_frame, None
+                if frame is None:
+                    continue
+
+                t0 = time.time()
                 detections = self._detector.detect(frame, wanted_labels=wanted)
 
                 any_on_couch = False
@@ -206,39 +320,33 @@ class MonitorService:
                         any_on_couch = True
                         best_conf = max(best_conf, det.confidence)
 
+                self._boxes = boxes
                 self.status.update({"dogs_in_frame": dogs, "persons_in_frame": persons,
                                     "dog_on_couch": any_on_couch})
 
-                self.recorder.feed(frame)
                 event = self.tracker.update(any_on_couch)
                 if event:
                     self._handle_event(event, frame, best_conf)
 
                 self._maybe_play_sound()
 
-                annotated = self._annotate(frame.copy(), boxes)
-                ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
-                if ok:
-                    with self._frame_lock:
-                        self._latest_jpeg = buf.tobytes()
-                        self._latest_raw = frame
+                # Measured start-to-start, so the reported rate includes any
+                # idle time and matches what the debouncer actually sees.
+                elapsed = time.time() - t0
+                if last_start is not None:
+                    detect_times.append(t0 - last_start)
+                    if len(detect_times) > 30:
+                        detect_times.pop(0)
+                    avg = sum(detect_times) / len(detect_times)
+                    self.status["detect_fps"] = round(1.0 / avg, 1) if avg > 0 else 0.0
+                last_start = t0
 
-                self.status["recording"] = self.recorder.recording
-
-                frame_times.append(time.time() - t0)
-                if len(frame_times) > 30:
-                    frame_times.pop(0)
-                avg = sum(frame_times) / len(frame_times)
-                self.status["fps"] = round(1.0 / avg, 1) if avg > 0 else 0.0
+                if min_interval:
+                    self._stop.wait(max(0.0, min_interval - elapsed))
 
         except Exception as e:
             self.status["last_error"] = str(e)
-            print(f"[service] loop crashed: {e}", file=sys.stderr)
-        finally:
-            self.recorder.finish_now()
-            if self._camera:
-                self._camera.release()
-            self.status["running"] = False
+            print(f"[service] detection loop crashed: {e}", file=sys.stderr)
 
     # ---------- events ----------
 

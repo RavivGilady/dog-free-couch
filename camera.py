@@ -42,7 +42,8 @@ class OpenCVCamera(CameraSource):
     _BACKEND_FLAGS = {}  # filled in lazily once cv2 is imported
 
     def __init__(self, index: int = 0, width: int = 640, height: int = 480,
-                 warmup_frames: int = 5, backend: str | None = None):
+                 warmup_frames: int = 5, backend: str | None = None,
+                 fps: int | None = None, fourcc: str | None = None):
         import cv2  # local import so this module can be inspected without cv2 installed
 
         self._cv2 = cv2
@@ -75,10 +76,25 @@ class OpenCVCamera(CameraSource):
                 "need to grant camera permission to your terminal."
             )
 
+        # MJPEG has to be requested before the resolution: many USB webcams
+        # expose 30fps only in MJPEG and drop to 5-10fps on raw YUY2 at the
+        # same size, so the pixel format is what actually caps the frame rate.
+        if fourcc:
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc.upper()))
         if width:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         if height:
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if fps:
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+
+        # Keep the driver queue at one frame. Without this, a consumer that
+        # falls behind reads buffered frames and the live view runs seconds
+        # behind reality even when the frame rate itself looks fine.
+        try:
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass  # not supported by every backend; harmless
 
         # Let auto-exposure/white-balance settle, and grab a real frame to
         # sanity-check the feed isn't a dead/placeholder image.
@@ -154,6 +170,8 @@ def get_camera(config: dict) -> CameraSource:
             width=width,
             height=height,
             backend=cam_cfg.get("backend_api"),  # e.g. "dshow" / "msmf" / "any"; auto-picked if unset
+            fps=cam_cfg.get("fps"),
+            fourcc=cam_cfg.get("fourcc"),  # e.g. "mjpg"
         )
     elif backend == "picamera2":
         return PiCamera2Source(width=width, height=height)
