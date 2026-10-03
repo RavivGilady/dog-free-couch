@@ -356,10 +356,25 @@ $("#btn-copy-token").addEventListener("click", async () => {
 });
 
 /* ================= live ================= */
+/* The feed is one long multipart/x-mixed-replace response rendered by an
+ * <img>, and that is fragile in a way worth being explicit about. Hiding the
+ * Live panel (the panels are display:none) or backgrounding the page lets the
+ * browser drop the connection, and a dropped multipart stream arrives as a
+ * *completed* load -- no "error" event -- so the <img> silently freezes on its
+ * last frame with nothing left to recover from. So the connection is owned
+ * here: torn down whenever the feed is not on screen, rebuilt when it is, and
+ * watchdogged while it is live. */
+const STREAM_STALL_MS = 6000;
+let streamLive = false; // a connection is wanted and believed open
+let streamFrames = 0; // frames seen on the current connection
+let lastFrameAt = 0;
+let lastFrameHeight = 0;
+
 function startStream(force = false) {
   const img = $("#stream");
   const empty = $("#stream-empty");
   if (!deviceId) {
+    streamLive = false;
     img.classList.add("hidden");
     img.removeAttribute("src");
     empty.textContent = "Add a camera in the Devices tab to get started.";
@@ -367,7 +382,14 @@ function startStream(force = false) {
     return;
   }
   const src = `/api/devices/${deviceId}/stream.mjpg`;
-  if (force || !img.src.includes(src)) img.src = `${src}?t=${Date.now()}`;
+  // The cache buster matters: without it a reconnect can be served from the
+  // dead connection's cache entry and never produce a new frame.
+  if (force || !img.src.includes(src)) {
+    streamFrames = 0;
+    img.src = `${src}?t=${Date.now()}`;
+  }
+  lastFrameAt = Date.now();
+  streamLive = true;
   img.classList.remove("hidden");
 }
 
@@ -375,15 +397,55 @@ function stopStream() {
   // Dropping the src closes the connection, which tells the server nobody
   // is watching, so the agent stops uploading frames.
   const img = $("#stream");
+  streamLive = false;
+  // Hold the box open at the size the last frame gave it, so coming back to
+  // the Live tab does not land on a collapsed player for a frame.
+  if (lastFrameHeight) img.style.minHeight = lastFrameHeight + "px";
   img.removeAttribute("src");
 }
 
+$("#stream").addEventListener("load", () => {
+  // Every part of the multipart response fires its own load event.
+  streamFrames++;
+  lastFrameAt = Date.now();
+  if (streamFrames === 1) $("#stream").style.minHeight = "";
+  lastFrameHeight = $("#stream").clientHeight || lastFrameHeight;
+});
+
 /* Reconnect the stream if it stalls (sleep, wifi drop, server restart). */
 $("#stream").addEventListener("error", () => {
-  if (activeTab !== "live" || !deviceId) return;
+  if (activeTab !== "live" || !deviceId || document.hidden) return;
   setTimeout(() => {
-    if (activeTab === "live") startStream();
+    if (activeTab === "live" && !document.hidden) startStream(true);
   }, 2000);
+});
+
+/* A silently closed stream leaves only a frozen picture, so judge it by
+ * whether frames are still arriving -- but only once this browser has proven
+ * it fires a load event per frame (Safari does not, and there the tab and
+ * visibility hooks plus "error" carry it), and only while the camera says it
+ * has frames to send, so an offline, stopped or camera-less agent is not
+ * mistaken for a dropped connection. */
+setInterval(() => {
+  if (!streamLive || activeTab !== "live" || document.hidden) return;
+  if (streamFrames < 2 || !deviceId) return;
+  const d = currentDevice();
+  const s = d?.status || {};
+  if (!d?.online || !s.running || !s.camera_ok) return;
+  if (Date.now() - lastFrameAt > STREAM_STALL_MS) startStream(true);
+}, 2000);
+
+/* Switching away from the browser (or locking the phone) is the common way
+ * to lose the feed, and nothing tells us about it afterwards. */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopStream();
+  } else if (
+    activeTab === "live" &&
+    !$("#app-view").classList.contains("hidden")
+  ) {
+    startStream(true);
+  }
 });
 
 let wasOnline = null;
@@ -425,8 +487,9 @@ async function pollStatus() {
 
     if (d && activeTab === "live") {
       // The server ends a stream after ~20s without frames, so open a fresh
-      // one when the camera comes back.
-      if (online && wasOnline === false) startStream(true);
+      // one when the camera comes back -- unless the page is hidden, where
+      // the feed is deliberately torn down until the user returns.
+      if (online && wasOnline === false && !document.hidden) startStream(true);
       const empty = $("#stream-empty");
       empty.textContent = `${d.name} is offline. Start the agent on its computer.`;
       empty.classList.toggle("hidden", online);
