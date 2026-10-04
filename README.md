@@ -125,11 +125,13 @@ Fix:
 python list_cameras.py
 ```
 
-This opens a window and prints which index/backend combo it's trying.
-Press `n` to cycle to the next camera index, `b` to cycle backends (`any`
-/ `dshow` / `msmf`) for the current index, until you see a real, moving
-picture of the room. Note the index and backend it shows, then set them
-in `config.yaml`:
+This lists the cameras it finds by name (e.g. `Integrated Camera`,
+`Web Camera`), flags any that only return a frozen placeholder frame, and
+previews each one: `n`/`p` step between them, `s` chooses. The choice is
+written to `config.yaml` (only the `index` and `backend_api` lines, so your
+comments survive). Other modes: `--list` just prints, `--no-preview` skips
+the window (headless Pi over SSH), `--index N --save` picks without asking.
+The result looks like:
 
 ```yaml
 camera:

@@ -3,6 +3,9 @@
 opencv-python>=4.8,<5
 numpy>=1.24
 pyyaml>=6.0
+# Windows only, and only for list_cameras.py: reads the DirectShow device
+# order, so camera names line up exactly with the indices OpenCV uses.
+pygrabber>=0.2; sys_platform == "win32"
 requests>=2.31
 
 # Sound in the event clips (audio.py). Optional: without it, and without
