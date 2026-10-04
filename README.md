@@ -166,6 +166,11 @@ and any number of cameras per account. It has two parts:
   agent, and sends Telegram notifications.
 - **The frontend** (`frontend/`) is a static single-page app the server
   serves at `/`.
+- **A camera station** is the same thing as the agent, except that it is a
+  dashboard tab: the browser opens its own camera, detects the dog in the
+  page and sounds the alarm out of that device's speakers. Nothing to
+  install, and the server cannot tell the two apart. See
+  [Using a browser as the camera](#using-a-browser-as-the-camera).
 
 ### Try it locally
 
@@ -198,7 +203,75 @@ The dashboard gives you:
   your browser mic and send it to the selected camera.
 - **Settings** - alarm repeat and clip lengths (per camera), Telegram and
   password (per account).
-- **Devices** - add, rename and remove cameras; issue a new token.
+- **Devices** - add, rename and remove cameras; issue a new token; or turn
+  the device you are reading the dashboard on into a camera itself.
+
+### Using a browser as the camera
+
+If the computer or phone you are reading the dashboard on is the one facing
+the couch, you don't need the agent at all. On **Devices**, under _Use this
+device as a camera_, name it and press **Start camera here**. The page asks
+for the camera, downloads the detection model once, and starts watching;
+a bar in the corner shows the preview and what it is seeing, with a
+**Stop camera** button.
+
+From then on it is a camera like any other on the account: it shows up in
+the camera picker, the Live tab, the events list and Telegram, and you draw
+its couch zone the same way (a new station has no zone yet, so nothing
+counts as being on the couch until you draw one).
+
+What is different from the agent, and why:
+
+- **Detection runs in the page**, with COCO-SSD under TensorFlow.js instead
+  of MobileNet-SSD under OpenCV. Same classes and the same confidence
+  threshold, but the model is fetched from a CDN, so a station needs
+  internet the first time it starts -- where an agent only needs it to
+  report.
+- **The alarm plays from that device's speakers.** Browsers only allow that
+  after a click, which is one more reason the station starts from a button.
+- **The tab has to stay open and the screen awake.** A background tab gets
+  its timers throttled and is handed fewer frames, which is exactly the
+  wrong thing for a camera; the station asks for a screen wake lock where
+  the browser offers one, and keeps its preview on screen. Leave the device
+  plugged in: detection and an open camera are hungry.
+- **Clip pre-roll is approximate.** `MediaRecorder` has no rewind, so a clip
+  is one whole recording segment, recycled while nothing is happening --
+  the lead-in before the alert comes out as up to `pre_roll + 2s` rather
+  than exactly the pre-roll you set. Its clips are webm rather than mp4,
+  and carry no total length, so the player's scrubber only fills in as it
+  buffers. The video itself is fine.
+- **One camera, one tab.** Starting the same camera somewhere else issues a
+  new device token and the older tab stops itself on its next heartbeat,
+  rather than two tabs fighting over one camera's events and frames. The
+  token is never written to disk: it is requested when the station starts
+  and forgotten when it stops.
+- **It needs https** (or `localhost`): no browser gives a page a camera
+  otherwise. A deployment following _Deploy online_ below already has it.
+
+#### Station logs, and sharing them
+
+A station logs what it is doing to the browser console with a `[station]`
+prefix, and keeps the last 1000 lines in the tab: each start with the camera
+it opened and at what resolution, the model download, every couch event and
+every upload (with the HTTP status when one fails), settings arriving from
+the dashboard, the server going away and coming back, clips queued with
+their size, and a one-line summary of frame rate and what is in frame once a
+minute, so a quiet night still shows the station was awake. The buffer
+survives **Stop camera** and restarts -- a start that failed is exactly the
+run worth reading.
+
+That matters because a station usually runs on the phone or laptop by the
+couch, whose console nobody is looking at. So on a **dev run** -- a server
+started with `python -m server`, or anything with `DEV_MODE=1` -- the
+Devices tab grows a **Share logs** button next to the station card. It posts
+the buffer to the server, which writes it as one JSON file under
+`data/station-logs/` (device, settings, last reported status, user agent and
+the lines), prints the path to the server's terminal, and keeps the 50 most
+recent reports.
+
+On a normal deployment the flag is off, the button is hidden, and the
+endpoint behind it does not exist -- so nothing a station logs leaves the
+tab unless you ask for it on a dev server.
 
 ### Drawing the couch zone from the dashboard
 
@@ -255,6 +328,7 @@ Postgres + S3.
 | `TRUST_PROXY`                               | `0`                         | `1` behind a reverse proxy / PaaS router (real client IPs, https)              |
 | `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
+| `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
 
 **Run one server process.** The live view keeps the latest frame of each
 camera in memory, so the image runs a single gunicorn worker with many
@@ -346,6 +420,7 @@ calibrate.py    # one-time tool to draw the couch zone
 monitor.py      # standalone loop with no server (local window, Telegram)
 server/         # web backend (Flask + SQLAlchemy): API, storage, live relay
 frontend/       # dashboard (static HTML/JS/CSS, served by the server)
+frontend/station.js  # a camera station: the dashboard tab *as* the agent
 Dockerfile, docker-compose.yml, Caddyfile   # deployment
 tests/
 ```
@@ -370,6 +445,11 @@ python -m pytest tests
   couch and floor overlap in the frame could cause false positives. Placing
   the camera to look across the couch (not straight down its length) gives
   the cleanest zone.
+- A camera station is only watching while its tab is open, and only
+  reliably while that tab is visible -- it is the right answer for a spare
+  laptop left pointing at the couch, and the wrong one for a camera that
+  has to come back up by itself after a power cut. That is what the agent
+  (and a service unit) is for.
 - One camera per agent. For a second room, add another device in the
   dashboard and run a second agent with its own config and token
   (`python agent.py --config room2.yaml` with `DFC_TOKEN` set, since the

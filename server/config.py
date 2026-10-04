@@ -42,6 +42,12 @@ class Config:
 
         self.SECRET_KEY = os.environ.get("SECRET_KEY", "")
         self.ALLOW_SIGNUP = _bool("ALLOW_SIGNUP", True)
+        # Developer-only extras, off unless asked for: `python -m server`
+        # turns it on (see server/__main__.py), a container or gunicorn
+        # deploy does not unless DEV_MODE is set in its environment. Today
+        # it gates the dashboard's "Share logs" button and the endpoint
+        # behind it, which writes a camera station's log to DATA_DIR.
+        self.DEV_MODE = _bool("DEV_MODE", False)
         # Behind a reverse proxy / PaaS router, trust its X-Forwarded-* headers
         # so rate limiting sees real client IPs and redirects keep https.
         self.TRUST_PROXY = _bool("TRUST_PROXY", False)

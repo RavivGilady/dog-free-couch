@@ -646,3 +646,78 @@ input[type="email"] {
   white-space: pre-wrap;
   margin: 6px 0 0;
 }
+
+/* ---------- camera station (this browser as a camera) ---------- */
+.device .kind {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  vertical-align: 1px;
+}
+/* "Share logs", on a dev run only: the button with its line count beside
+   it rather than under it. */
+#station-logs-box {
+  align-items: center;
+  margin-top: 14px;
+}
+/* Pinned, not part of a panel: the preview has to stay on screen for the
+   browser to keep handing out frames, whichever tab is being read. */
+.station-bar {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.station-live {
+  position: relative;
+  flex: none;
+  width: 160px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.station-live video {
+  display: block;
+  width: 100%;
+}
+.station-live .badge {
+  top: 6px;
+  left: 6px;
+  padding: 3px 7px;
+  font-size: 10px;
+}
+.station-info {
+  display: grid;
+  min-width: 0;
+}
+.station-info .sub {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.station-info .sub.bad {
+  color: var(--danger);
+}
+@media (max-width: 560px) {
+  .station-bar {
+    left: 16px;
+    right: 16px;
+  }
+  .station-live {
+    width: 96px;
+  }
+}

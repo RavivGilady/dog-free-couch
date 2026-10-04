@@ -103,8 +103,11 @@ def _register_auth(app: Flask) -> None:
         _login_failures[ip] = (fails + 1, time.time() + _LOCKOUT_SEC)
 
     def _me_payload(user: User) -> dict:
+        # "dev" is about this server process, not this account: it says the
+        # page may show the developer-only extras (see Config.DEV_MODE).
         return {"user": {"id": user.id, "email": user.email},
-                "csrf_token": session.get("csrf")}
+                "csrf_token": session.get("csrf"),
+                "dev": app.config["DFC"].DEV_MODE}
 
     @app.get("/api/auth/me")
     def auth_me():
