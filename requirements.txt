@@ -4,3 +4,8 @@ opencv-python>=4.8,<5
 numpy>=1.24
 pyyaml>=6.0
 requests>=2.31
+
+# Sound in the event clips (audio.py). Optional: without it, and without
+# ffmpeg on PATH, clips are still recorded -- just silent. On Linux it
+# needs PortAudio: sudo apt install -y libportaudio2
+sounddevice>=0.4

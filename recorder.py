@@ -12,6 +12,12 @@ Two things make this more than "open a VideoWriter on alert":
    H.264 support depends on an openh264 library that isn't always present
    on Windows. So the codec is probed once at startup and falls back to
    WebM/VP8 rather than silently writing a file the dashboard can't play.
+
+3. Sound. VideoWriter has no audio track, so a finished clip is handed to
+   audio.py, which cuts the matching stretch of microphone audio and muxes
+   it in before the clip is announced as done. Frames are kept with the
+   wall-clock time they arrived purely to mark out that stretch -- see
+   `_mux_audio`.
 """
 from __future__ import annotations
 
@@ -91,13 +97,15 @@ class ClipRecorder:
 
     def __init__(self, out_dir: str = "videos", fps: float = 15.0,
                  pre_roll_sec: float = 4.0, max_clip_sec: float = 60.0,
-                 post_roll_sec: float = 3.0):
+                 post_roll_sec: float = 3.0, mic=None):
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.fps = max(1.0, float(fps))
         self.pre_roll_sec = pre_roll_sec
         self.max_clip_sec = max_clip_sec
         self.post_roll_sec = post_roll_sec
+        # An audio.MicRecorder, or None for silent clips.
+        self.mic = mic
 
         self._buffer = deque(maxlen=max(1, int(self.fps * pre_roll_sec)))
         self._lock = threading.Lock()
@@ -107,6 +115,23 @@ class ClipRecorder:
         self._stopping_at = None
         self._frames_written = 0
         self._on_done = None
+        # Wall clock of the first and last frame in the clip, which is the
+        # window of microphone audio that belongs to it.
+        self._first_frame_at = None
+        self._last_frame_at = None
+        self._finalizing = None
+
+        self.size_audio_history()
+
+    def size_audio_history(self) -> None:
+        """Keep the mic's buffer longer than the longest clip it can be
+        asked for. Clip lengths are a dashboard setting, so this is called
+        again whenever they change."""
+        if self.mic:
+            import audio
+
+            self.mic.ensure_history(self.pre_roll_sec + self.max_clip_sec
+                                    + self.post_roll_sec + audio.HISTORY_SLACK_SEC)
 
     @property
     def recording(self) -> bool:
@@ -114,14 +139,15 @@ class ClipRecorder:
 
     def feed(self, frame) -> None:
         """Every frame goes here: buffered when idle, written when recording."""
+        now = time.time()
         with self._lock:
             if self._writer is None:
-                self._buffer.append(frame.copy())
+                self._buffer.append((now, frame.copy()))
                 return
 
             self._writer.write(frame)
             self._frames_written += 1
-            now = time.time()
+            self._last_frame_at = now
 
             # Hard cap so a dog that naps all afternoon can't fill the disk.
             if now - self._started_at >= self.max_clip_sec:
@@ -158,8 +184,10 @@ class ClipRecorder:
             self._stopping_at = None
             self._frames_written = 0
             self._on_done = on_done
+            self._first_frame_at = self._buffer[0][0] if self._buffer else self._started_at
+            self._last_frame_at = self._started_at
 
-            for buffered in self._buffer:
+            for _, buffered in self._buffer:
                 writer.write(buffered)
                 self._frames_written += 1
             self._buffer.clear()
@@ -183,12 +211,72 @@ class ClipRecorder:
             return
         self._writer.release()
         path, cb, n = self._path, self._on_done, self._frames_written
+        span = (self._first_frame_at, self._last_frame_at)
         self._writer = None
         self._path = None
         self._stopping_at = None
         self._on_done = None
+        self._first_frame_at = None
+        self._last_frame_at = None
 
+        if cb or self.mic:
+            # Off the lock's critical path, on its own thread: neither
+            # ffmpeg nor a slow Telegram upload can stall the capture loop.
+            self._finalizing = threading.Thread(
+                target=self._finalize, args=(path, n, span, cb), daemon=True)
+            self._finalizing.start()
+
+    def wait_for_finalize(self, timeout: float = 30.0) -> None:
+        """Give the last clip's audio time to be muxed in.
+
+        The finalize thread is a daemon, so Ctrl+C during a clip would
+        otherwise exit while ffmpeg was still running and leave that one
+        clip silent -- which is exactly the clip someone stopped to go look
+        at. The clip file itself is never at risk either way.
+        """
+        t = self._finalizing
+        if t:
+            t.join(timeout=timeout)
+
+    def _finalize(self, path, frames_written, span, cb) -> None:
+        """Add the sound, then tell whoever asked that the clip is done."""
+        if self.mic and path:
+            try:
+                self._mux_audio(path, frames_written, span)
+            except Exception as e:
+                # A clip without sound beats no clip: the file on disk is
+                # untouched unless the mux fully succeeded.
+                print(f"[recorder] adding audio to {path} failed: {e}", file=sys.stderr)
         if cb:
-            # Callback off the lock's critical path, on its own thread, so a
-            # slow Telegram upload can't stall the capture loop.
-            threading.Thread(target=cb, args=(path, n), daemon=True).start()
+            cb(path, frames_written)
+
+    def _mux_audio(self, path, frames_written, span) -> None:
+        """Cut the clip's stretch of microphone audio and mux it in.
+
+        The frame rate handed to the muxer is the one the camera really
+        achieved, not the configured one -- a clip written at a nominal 15fps
+        from a camera delivering 11 plays 36% fast, which is invisible until
+        there is sound on it to go out of sync.
+        """
+        import audio
+
+        first, last = span
+        if not (first and last and last > first and frames_written > 1):
+            return
+        # n frames span n-1 intervals; the last frame is still on screen for
+        # one more, so the clip's duration runs to last + one interval.
+        interval = (last - first) / (frames_written - 1)
+        real_fps = 1.0 / interval
+        if not (0.5 <= real_fps <= 240):  # nonsense: a stalled or stuttering feed
+            return
+
+        wav = Path(path).with_suffix(".wav")
+        try:
+            if not self.mic.write_segment(wav, first, last + interval):
+                return
+            audio.add_audio(path, str(wav), fps=real_fps)
+        finally:
+            try:
+                wav.unlink(missing_ok=True)
+            except Exception:
+                pass

@@ -720,6 +720,9 @@ async function pollStatus() {
     $("#s-today").textContent = stats.today_alerts;
     $("#s-total").textContent = stats.total_alerts;
     $("#s-longest").textContent = fmtDuration(stats.longest_session_sec);
+    // "Silent" is the honest answer whenever the agent has no mic: clips are
+    // still recorded, so this is the only place that difference shows.
+    $("#s-audio").textContent = !online ? "—" : s.audio_ok ? "On" : "Silent";
     $("#stream-badge").classList.toggle("hidden", !(online && s.dog_on_couch));
 
     if (d && activeTab === "live") {

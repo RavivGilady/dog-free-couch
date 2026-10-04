@@ -42,6 +42,17 @@ debug:
   # Testing aid: also detect people and log when one enters the couch zone.
   # Never fires alerts -- dogs remain the only thing that triggers anything.
   log_persons: false
+audio:
+  # Record sound from a microphone next to the camera and mux it into the
+  # event clips. Needs the `sounddevice` package and ffmpeg on PATH; with
+  # either missing the clips are still recorded, just silent (the agent
+  # says so on startup, and the dashboard's audio badge stays off).
+  enabled: true
+  # Input device: leave empty for the system default, or give the name or
+  # index that `python -m audio` lists.
+  device:
+  sample_rate: 44100
+  channels: 1
 alert:
   play_sound: true
   # Which built-in siren to play: builtin (two-tone beeps), wail, yelp,
