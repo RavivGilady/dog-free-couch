@@ -1,5 +1,8 @@
 camera:
   backend: opencv
+  # Which camera, and (on Windows) which OpenCV backend to open it with.
+  # Run `python list_cameras.py` to see this computer's cameras by name and
+  # write your choice here.
   index: 1
   width: 640
   height: 480
