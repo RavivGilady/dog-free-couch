@@ -281,19 +281,23 @@ class AgentLink:
     # ---------- live view ----------
 
     def _live_loop(self) -> None:
-        last = None
+        seq = 0
         while not self._stop.is_set():
             if not self.live_wanted.wait(timeout=1.0):
                 continue
             t0 = time.time()
-            jpeg = self.monitor.latest_jpeg()
-            if jpeg is not None and jpeg is not last:
-                last = jpeg
-                try:
-                    r = self.client.post("/frame", data=jpeg, timeout=5,
-                                         headers={"Content-Type": "image/jpeg"})
-                    if r.ok and not r.json().get("live_wanted"):
-                        self.live_wanted.clear()
-                except requests.RequestException:
-                    time.sleep(1.0)
+            # Blocks until the capture thread publishes a frame, so each one
+            # leaves as soon as it exists. Polling for a new frame instead
+            # added up to a poll interval of lag on top of the upload.
+            jpeg, seq = self.monitor.wait_for_jpeg(seq, timeout=1.0)
+            if jpeg is None:
+                continue  # nothing new (camera down?) -- keep waiting
+            try:
+                r = self.client.post("/frame", data=jpeg, timeout=5,
+                                     headers={"Content-Type": "image/jpeg"})
+                if r.ok and not r.json().get("live_wanted"):
+                    self.live_wanted.clear()
+            except requests.RequestException:
+                time.sleep(1.0)
+            # The camera may well run faster than we want to push upstream.
             time.sleep(max(0.0, 1.0 / LIVE_MAX_FPS - (time.time() - t0)))
