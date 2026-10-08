@@ -56,6 +56,9 @@ class Config:
         self.SECURE_COOKIES = _bool("SECURE_COOKIES", False)
         # Events (and their clips) older than this are deleted. 0 keeps forever.
         self.RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "30"))
+        # Where the help pages and the dashboard's "Contact support" link
+        # send people. Empty hides the link rather than showing a dead one.
+        self.SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
         self.MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
 
         for k, v in overrides.items():

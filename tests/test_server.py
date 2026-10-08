@@ -504,6 +504,57 @@ def test_frontend_is_served():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_public_pages_and_app_route():
+    app, tmp = make_app()
+    try:
+        anon = app.test_client()
+        # Visitors get the pitch, with a way into the app.
+        home = anon.get("/").data
+        assert b"Create a free account" in home and b"/app#signup" in home
+        assert b"What do I need?" in home
+        assert b"Dog Free Couch" in anon.get("/app").data
+        assert b'id="auth-form"' in anon.get("/app").data
+        assert anon.get("/help").status_code == 200
+        # Signed-in people still land on their dashboard at "/".
+        b = Browser(app, "pages@example.com")
+        assert b'id="auth-form"' in b.c.get("/").data
+        assert b"Create a free account" not in b.c.get("/").data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_support_email_is_optional_and_escaped():
+    app, tmp = make_app()
+    try:
+        c = app.test_client()
+        assert b"mailto:" not in c.get("/help").data
+        assert b"{{SUPPORT_EMAIL}}" not in c.get("/").data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    app, tmp = make_app(SUPPORT_EMAIL='help@example.com"><script>x</script>')
+    try:
+        c = app.test_client()
+        page = c.get("/help").data
+        assert b"mailto:help@example.com" in page
+        assert b"<script>x</script>" not in page
+        assert b"{{SUPPORT_EMAIL}}" not in page
+        b = Browser(app, "sup@example.com")
+        assert b.c.get("/api/auth/me").get_json()["support_email"].startswith("help@")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_agent_installer_is_served():
+    app, tmp = make_app()
+    try:
+        r = app.test_client().get("/install.sh")
+        assert r.status_code == 200
+        assert r.data.startswith(b"#!/usr/bin/env bash")
+        assert b"dog-free-couch.service" in r.data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     import traceback
 

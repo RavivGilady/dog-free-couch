@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Help &mdash; Dog Free Couch</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/site.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand-mark" href="/">DOG FREE COUCH</a>
+      <span class="spacer"></span>
+      <a href="/help">Help</a>
+      <a href="/app">Open the dashboard</a>
+    </nav>
+
+    <div class="site-wrap help-layout">
+      <aside class="help-toc">
+        <a href="#start">Getting started</a>
+        <a href="#browser">Browser as camera</a>
+        <a href="#agent">Computer or Raspberry Pi</a>
+        <a href="#zone">Draw the couch zone</a>
+        <a href="#alarm">Alarm sound</a>
+        <a href="#telegram">Telegram alerts</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+        <a href="#contact">Contact</a>
+      </aside>
+
+      <article class="help-body">
+        <h2 id="start">Getting started</h2>
+        <p>
+          Setup is four steps, and the dashboard shows them as a checklist on
+          the Live tab:
+        </p>
+        <ol>
+          <li>Add a camera (a browser, or a computer or Raspberry Pi).</li>
+          <li>Draw the couch on the live picture.</li>
+          <li>Test the alarm.</li>
+          <li>Connect Telegram (optional, for alerts on your phone).</li>
+        </ol>
+        <p>
+          Nothing counts as &ldquo;on the couch&rdquo; until you draw the
+          zone, so step 2 matters.
+        </p>
+
+        <h2 id="browser">Use a browser as the camera</h2>
+        <p>
+          The easiest start, with nothing to install. On the device facing the
+          couch (a laptop, tablet or phone):
+        </p>
+        <ol>
+          <li>Open the dashboard and go to <b>Devices</b>.</li>
+          <li>
+            Under <i>Use this device as a camera</i>, give it a name and press
+            <b>Start camera here</b>.
+          </li>
+          <li>Allow the camera when the browser asks.</li>
+        </ol>
+        <p>
+          Keep the tab open, the screen awake and the device plugged in. A
+          browser camera needs an <code>https</code> address and internet the
+          first time, to download the detection model.
+        </p>
+
+        <h2 id="agent">Use a computer or Raspberry Pi</h2>
+        <p>
+          A small program, the <b>agent</b>, runs next to the camera and keeps
+          running in the background. In the dashboard open <b>Devices</b>, add
+          a camera and copy the command it shows.
+        </p>
+        <h3>Linux and Raspberry Pi OS</h3>
+        <p>Run the command on the Pi or computer. It looks like this:</p>
+        <pre class="cmd"><code id="help-install-cmd">curl -fsSL https://YOUR-SERVER/install.sh | bash -s -- --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
+        <p>
+          It installs what it needs, downloads the detection model, and sets
+          the agent up as a service that starts at boot, restarts if it stops,
+          and updates itself each time it starts. Add <code>--pi</code> for
+          the ribbon-cable Raspberry Pi camera (a USB webcam does not need
+          it). It takes a few minutes on a Pi. You can read the script at
+          <a href="/install.sh">/install.sh</a> before running it.
+        </p>
+        <p>
+          Check on it with <code>journalctl -u dog-free-couch -f</code>. The
+          camera shows as online in the dashboard within a minute.
+        </p>
+        <h3>Windows and macOS</h3>
+        <p>
+          There is no installer yet. You need Python 3.9 or newer and
+          <code>git</code>. In a terminal:
+        </p>
+        <pre><code>git clone https://github.com/RavivGilady/dog-free-couch.git
+cd dog-free-couch
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python download_model.py
+python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
+        <p>
+          The agent stops when you close that terminal, and it does not update
+          itself. Keep the computer awake while it watches.
+        </p>
+
+        <h2 id="zone">Draw the couch zone</h2>
+        <p>
+          On the Live tab press <b>Draw couch zone</b> and click the couch's
+          corners on the picture, going around it. Drag a corner to move it;
+          double-click to remove it. The slider sets how much of the dog has
+          to be inside the zone before it counts. Press <b>Save zone</b>; the
+          camera picks it up in a few seconds.
+        </p>
+        <p>
+          If you move the camera, redraw the zone.
+        </p>
+
+        <h2 id="alarm">Alarm sound</h2>
+        <p>
+          Press <b>Test alarm on camera</b> on the Live tab. The sound plays
+          from the device running the camera, not from the browser you are
+          using. On the Sound tab you can choose a built-in siren or record
+          your own voice; many dogs react better to that. In Settings you can
+          make it repeat while the dog stays on the couch.
+        </p>
+
+        <h2 id="telegram">Telegram alerts</h2>
+        <ol>
+          <li>
+            In Telegram message <b>@BotFather</b>, send <code>/newbot</code>
+            and follow the steps. It gives you a bot token.
+          </li>
+          <li>Open your new bot and send it any message.</li>
+          <li>
+            In a browser open
+            <code>https://api.telegram.org/bot&lt;YOUR_TOKEN&gt;/getUpdates</code>
+            and find <code>"chat":{"id": ...}</code>. That number is your chat
+            id.
+          </li>
+          <li>
+            In the dashboard open <b>Settings &rarr; Telegram</b>, paste both,
+            tick <b>Enabled</b>, press <b>Save</b>, then <b>Test connection</b>.
+          </li>
+        </ol>
+
+        <h2 id="troubleshooting">Troubleshooting</h2>
+
+        <h3 id="offline">The camera says Offline</h3>
+        <ul>
+          <li>
+            <b>Browser camera:</b> the tab must be open and running. Open the
+            dashboard on that device and press <b>Start camera here</b>.
+          </li>
+          <li>
+            <b>Agent:</b> it is not running or cannot reach the server. On a
+            Pi run <code>sudo systemctl status dog-free-couch</code>; on other
+            computers check that the terminal is still open.
+          </li>
+          <li>
+            If you pressed <b>New token</b> for the camera, the old token no
+            longer works. Run the new command the dashboard showed.
+          </li>
+        </ul>
+
+        <h3 id="no-signal">The picture is grey, frozen or says &ldquo;no signal&rdquo;</h3>
+        <p>
+          The camera is found but is not delivering a picture. Common causes:
+        </p>
+        <ul>
+          <li>
+            Another app (a video call, the Camera app) is using the camera.
+            Close it, then restart the agent or browser camera.
+          </li>
+          <li>
+            The computer has more than one camera (a built-in one, an infrared
+            Windows Hello camera, a virtual camera) and the wrong one was
+            chosen. On the agent computer run
+            <code>python list_cameras.py</code>. It lists the cameras by name
+            and previews each; pick the one with a live picture. In a browser
+            camera, choose another one from the <b>Camera</b> list.
+          </li>
+          <li>
+            On Windows, the default way of opening the camera sometimes
+            returns a frozen placeholder image. <code>list_cameras.py</code>
+            also tests that and sets <code>backend_api: dshow</code> when it
+            helps.
+          </li>
+          <li>
+            On a Raspberry Pi with the ribbon camera, install with
+            <code>--pi</code> and check the cable is seated firmly.
+          </li>
+          <li>
+            Browser camera: check the browser has permission for the camera
+            (the camera icon in the address bar).
+          </li>
+        </ul>
+
+        <h3>The dog is on the couch but there is no alert</h3>
+        <ul>
+          <li>Check that a couch zone is drawn and covers where the dog sits.</li>
+          <li>
+            Lower the slider so less of the dog must be inside the zone.
+          </li>
+          <li>The picture needs light and the dog needs to be clearly visible.</li>
+          <li>
+            The Live tab shows <b>Dogs in frame</b>. If it stays at 0 the dog
+            is not being detected; try a different camera angle.
+          </li>
+        </ul>
+
+        <h3>I get alerts but hear no alarm</h3>
+        <ul>
+          <li>
+            The alarm plays on the camera's device. Check its volume and that
+            <b>Play sound</b> is ticked in Settings.
+          </li>
+          <li>
+            Browser camera: browsers allow sound only after a click, so press
+            <b>Start camera here</b> and leave the tab open.
+          </li>
+        </ul>
+
+        <h3>Telegram says it failed</h3>
+        <ul>
+          <li>You must send your bot a message first, or it cannot message you.</li>
+          <li>Check the token and chat id for typos; the chat id is a number.</li>
+        </ul>
+
+        <h2 id="contact">Contact</h2>
+        <p>
+          Still stuck?
+          <!--support-->Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
+          and tell us the camera type, what you see on the Live tab and any
+          red message there.<!--/support-->
+        </p>
+      </article>
+    </div>
+
+    <footer class="site-foot">
+      <a href="/">Home</a>
+      <a href="/app">Dashboard</a>
+    </footer>
+
+    <script>
+      // Show the commands with this server's real address in them.
+      const el = document.getElementById("help-install-cmd");
+      if (el) el.textContent = el.textContent.split("https://YOUR-SERVER").join(location.origin);
+      document.querySelectorAll("pre code").forEach((c) => {
+        if (c !== el) c.textContent = c.textContent.split("https://YOUR-SERVER").join(location.origin);
+      });
+    </script>
+  </body>
+</html>
