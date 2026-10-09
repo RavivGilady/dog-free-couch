@@ -183,6 +183,7 @@ main {
 }
 .video-wrap {
   position: relative;
+  align-self: start; /* don't stretch to the side column: the zone overlay must match the image box */
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
