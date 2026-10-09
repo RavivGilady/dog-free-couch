@@ -19,9 +19,10 @@ import sys
 import threading
 import time
 from datetime import timedelta
+from html import escape as html_escape
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, Response, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .config import Config
@@ -107,7 +108,8 @@ def _register_auth(app: Flask) -> None:
         # page may show the developer-only extras (see Config.DEV_MODE).
         return {"user": {"id": user.id, "email": user.email},
                 "csrf_token": session.get("csrf"),
-                "dev": app.config["DFC"].DEV_MODE}
+                "dev": app.config["DFC"].DEV_MODE,
+                "support_email": app.config["DFC"].SUPPORT_EMAIL}
 
     @app.get("/api/auth/me")
     def auth_me():
@@ -187,9 +189,45 @@ def _register_frontend(app: Flask) -> None:
     """The dashboard is a static single-page app; serving it from the same
     origin as the API keeps cookies simple and avoids CORS entirely."""
 
+    def _page(name: str):
+        resp = send_from_directory(FRONTEND_DIR, name)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    def _page_with_support(name: str):
+        """Static page with the operator's support address filled in. The
+        placeholder sits in an href, so the whole link is dropped when no
+        address is configured."""
+        html = (FRONTEND_DIR / name).read_text(encoding="utf-8")
+        email = html_escape(app.config["DFC"].SUPPORT_EMAIL, quote=True)
+        if email:
+            html = html.replace("{{SUPPORT_EMAIL}}", email)
+        else:
+            html = re.sub(r"<!--support-->.*?<!--/support-->", "", html, flags=re.S)
+        resp = Response(html, mimetype="text/html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     @app.get("/")
     def index():
-        resp = send_from_directory(FRONTEND_DIR, "index.html")
+        # Visitors get the pitch; people who are already signed in go
+        # straight to their dashboard, as before.
+        if current_user() is not None:
+            return _page("index.html")
+        return _page_with_support("landing.html")
+
+    @app.get("/app")
+    def dashboard():
+        return _page("index.html")
+
+    @app.get("/help")
+    def help_page():
+        return _page_with_support("help.html")
+
+    @app.get("/install.sh")
+    def install_script():
+        resp = send_from_directory(FRONTEND_DIR, "install-agent.sh",
+                                   mimetype="text/x-shellscript")
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 

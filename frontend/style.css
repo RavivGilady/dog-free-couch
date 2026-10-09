@@ -721,3 +721,98 @@ input[type="email"] {
     width: 96px;
   }
 }
+
+/* ---------- setup checklist, troubleshooting, footer ---------- */
+.onb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.onb-head h2 {
+  margin: 0;
+}
+.onb-head .spacer {
+  flex: 1;
+}
+.onb-steps {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.onb-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.onb-step.current {
+  border-color: var(--accent);
+}
+.onb-step.done {
+  opacity: 0.6;
+}
+.onb-check {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: #fff;
+}
+.onb-step.done .onb-check {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.onb-text {
+  flex: 1;
+  min-width: 0;
+}
+.trouble {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.trouble ul {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+.trouble a,
+.app-foot a,
+.auth-links a {
+  color: var(--accent);
+}
+.app-foot {
+  text-align: center;
+  padding: 18px 14px 28px;
+  font-size: 13px;
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.auth-links {
+  margin: 16px 0 0;
+  text-align: center;
+}
+.video-empty span {
+  display: block;
+  margin-bottom: 8px;
+}
+@media (max-width: 560px) {
+  .onb-step {
+    flex-wrap: wrap;
+  }
+  .onb-step button {
+    margin-left: 34px;
+  }
+}

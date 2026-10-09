@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" role="img" aria-label="A camera's view of a living room: a dog sitting on the couch, outlined by the detector, inside the couch zone, with a DOG ON COUCH alert">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9dfd2"/><stop offset="1" stop-color="#d8cbb9"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b98f63"/><stop offset="1" stop-color="#9c7549"/>
+    </linearGradient>
+    <linearGradient id="vig" cx="0.5" cy="0.5" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#000" stop-opacity="0.05"/><stop offset="1" stop-color="#000" stop-opacity="0.25"/>
+    </linearGradient>
+  </defs>
+
+  <!-- room -->
+  <rect width="800" height="520" fill="url(#wall)"/>
+  <rect y="360" width="800" height="160" fill="url(#floor)"/>
+  <rect y="352" width="800" height="10" fill="#f4eee6"/>
+  <!-- window -->
+  <rect x="560" y="50" width="170" height="190" rx="4" fill="#cfe6f5"/>
+  <path d="M560 50h170v190H560z M645 50v190 M560 145h170" fill="none" stroke="#f4eee6" stroke-width="8"/>
+  <!-- picture -->
+  <rect x="80" y="70" width="120" height="86" rx="3" fill="#8aa49a"/>
+  <circle cx="125" cy="105" r="14" fill="#e8cf8a"/>
+  <path d="M80 156l38-34 30 24 26-18 26 28z" fill="#5f7b70"/>
+  <!-- lamp -->
+  <rect x="738" y="228" width="6" height="150" fill="#4a3d32"/>
+  <path d="M716 228h50l-10-44h-30z" fill="#f1d58c"/>
+  <!-- rug -->
+  <ellipse cx="400" cy="470" rx="300" ry="38" fill="#7e6a8f" opacity="0.55"/>
+
+  <!-- couch -->
+  <rect x="120" y="226" width="560" height="108" rx="30" fill="#5b7a99"/>
+  <rect x="96" y="268" width="68" height="124" rx="26" fill="#4d6a87"/>
+  <rect x="636" y="268" width="68" height="124" rx="26" fill="#4d6a87"/>
+  <rect x="150" y="300" width="500" height="86" rx="18" fill="#6a8aa9"/>
+  <path d="M400 304v82" stroke="#5b7a99" stroke-width="3"/>
+  <rect x="112" y="388" width="14" height="22" rx="3" fill="#3a2f27"/>
+  <rect x="674" y="388" width="14" height="22" rx="3" fill="#3a2f27"/>
+  <!-- cushion -->
+  <rect x="190" y="250" width="86" height="76" rx="14" fill="#e0b25a" transform="rotate(-8 233 288)"/>
+
+  <!-- dog -->
+  <g id="dog">
+    <ellipse cx="438" cy="352" rx="92" ry="48" fill="#c98a4b"/>
+    <rect x="360" y="352" width="26" height="36" rx="12" fill="#b9793d"/>
+    <rect x="470" y="352" width="26" height="36" rx="12" fill="#b9793d"/>
+    <path d="M520 336q50-26 52-70" fill="none" stroke="#c98a4b" stroke-width="20" stroke-linecap="round"/>
+    <ellipse cx="372" cy="296" rx="62" ry="58" fill="#c98a4b" transform="rotate(-8 372 296)"/>
+    <ellipse cx="344" cy="296" rx="22" ry="48" fill="#9a622c" transform="rotate(14 344 296)"/>
+    <ellipse cx="402" cy="272" rx="20" ry="40" fill="#9a622c" transform="rotate(-14 402 272)"/>
+    <ellipse cx="340" cy="330" rx="34" ry="24" fill="#e8c9a0"/>
+    <ellipse cx="322" cy="322" rx="9" ry="7" fill="#2b2118"/>
+    <circle cx="356" cy="284" r="5" fill="#2b2118"/>
+    <path d="M330 342q14 12 28 0" fill="none" stroke="#2b2118" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- camera overlay: couch zone (dashed) and detection box -->
+  <polygon points="132,236 668,236 700,392 100,392" fill="#ffb020" fill-opacity="0.14" stroke="#ffb020" stroke-width="4" stroke-dasharray="14 8"/>
+  <rect x="296" y="214" width="296" height="196" rx="6" fill="none" stroke="#ef4444" stroke-width="4"/>
+  <rect x="296" y="186" width="124" height="28" rx="4" fill="#ef4444"/>
+  <text x="306" y="206" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="16" font-weight="700" fill="#fff">dog 94%</text>
+
+  <!-- vignette and HUD -->
+  <rect width="800" height="520" fill="url(#vig)"/>
+  <circle cx="34" cy="34" r="8" fill="#ef4444"/>
+  <text x="52" y="40" font-family="ui-monospace,Consolas,monospace" font-size="18" font-weight="700" fill="#fff" stroke="#000" stroke-opacity="0.35" stroke-width="3" paint-order="stroke">LIVE &#183; Living room</text>
+  <g transform="translate(470 456)">
+    <rect width="300" height="46" rx="10" fill="#ef4444"/>
+    <text x="150" y="31" text-anchor="middle" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="22" font-weight="800" fill="#fff" letter-spacing="1.5">DOG ON COUCH</text>
+  </g>
+</svg>

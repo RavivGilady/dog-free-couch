@@ -22,6 +22,8 @@ let eventsOffset = 0;
  * the camera station. The server decides; the page only obeys, and the
  * endpoint behind the button is gated by the same flag. */
 let dev = false;
+/* Where "Contact support" goes; empty hides the links. From /api/auth/me. */
+let supportEmail = "";
 /* The camera this tab has been running, remembered past Station.stop() so
  * the logs of a run that ended (or never started) still have a camera to
  * be filed under. */
@@ -182,6 +184,7 @@ async function boot() {
         const r = await fetch("/api/auth/me");
         allowSignup = (await r.json()).allow_signup;
       } catch (_) {}
+      if (allowSignup && location.hash === "#signup") authMode = "signup";
       showAuth();
     }
   }
@@ -190,10 +193,13 @@ async function boot() {
 async function enterApp(me) {
   CSRF = me.csrf_token;
   dev = !!me.dev;
+  supportEmail = me.support_email || "";
   $("#who").textContent = me.user.email;
   $("#auth-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
+  renderFooter();
   await loadDevices();
+  loadOnboardingTelegram();
   if (!devices.length) switchTab("devices");
   else switchTab("live");
 }
@@ -209,6 +215,7 @@ $("#btn-logout").addEventListener("click", async () => {
   devices = [];
   deviceId = null;
   authMode = "login";
+  $("#app-foot").classList.add("hidden");
   showAuth();
 });
 
@@ -236,6 +243,7 @@ function switchTab(name) {
     renderDevices();
     renderStationCard();
   }
+  renderOnboarding();
 }
 $$(".tab").forEach((btn) =>
   btn.addEventListener("click", () => switchTab(btn.dataset.tab)),
@@ -378,12 +386,23 @@ function showToken(token, agentCmd, agentCmdLocal) {
     : "On the camera computer, in this project's folder, with its virtualenv active, run:";
   $("#token-cmd").textContent =
     `${cmd} --server ${location.origin} --token ${token}`;
+  $("#token-install").textContent =
+    `curl -fsSL ${location.origin}/install.sh | bash -s -- --server ${location.origin} --token ${token}`;
   $("#token-box").classList.remove("hidden");
 }
 
 $("#btn-copy-token").addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText($("#token-cmd").textContent);
+    toast("Copied");
+  } catch (_) {
+    toast("Copy failed — select the text and copy it manually");
+  }
+});
+
+$("#btn-copy-install").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("#token-install").textContent);
     toast("Copied");
   } catch (_) {
     toast("Copy failed — select the text and copy it manually");
@@ -601,6 +620,8 @@ let streamFrames = 0; // frames seen on the current connection
 let lastFrameAt = 0;
 let lastFrameHeight = 0;
 
+const NO_CAMERA_HTML = `<span>No camera yet.</span> <button id="btn-empty-add" class="small">Add a camera</button>`;
+
 function startStream(force = false) {
   const img = $("#stream");
   const empty = $("#stream-empty");
@@ -608,7 +629,7 @@ function startStream(force = false) {
     streamLive = false;
     img.classList.add("hidden");
     img.removeAttribute("src");
-    empty.textContent = "Add a camera in the Devices tab to get started.";
+    empty.innerHTML = NO_CAMERA_HTML;
     empty.classList.remove("hidden");
     return;
   }
@@ -747,7 +768,9 @@ async function pollStatus() {
       err.classList.remove("hidden");
     } else err.classList.add("hidden");
 
+    renderTrouble(d);
     if (activeTab === "live") renderZoneBox();
+    renderOnboarding();
   } catch (_) {}
 }
 setInterval(pollStatus, 2000);
@@ -759,6 +782,10 @@ $("#btn-test-sound").addEventListener("click", async () => {
       json: { type: "test_sound" },
     });
     toast(r.online ? "Alarm sent to the camera" : "Queued — camera is offline");
+    if (r.online) {
+      setOnb("alarm", true);
+      renderOnboarding();
+    }
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
@@ -969,7 +996,7 @@ async function loadEvents(reset) {
     if (reset) {
       list.innerHTML =
         html ||
-        `<p class="muted">No events yet. When the dog gets on the couch, it shows up here.</p>`;
+        `<p class="muted">No alerts yet. When the dog gets on the couch, it shows up here. Nothing happening? Check that a couch zone is drawn on the Live tab, and see <a href="/help#troubleshooting" target="_blank">troubleshooting</a>.</p>`;
     } else list.insertAdjacentHTML("beforeend", html);
     eventsOffset += events.length;
     $("#btn-more").classList.toggle("hidden", events.length < PAGE);
@@ -1270,6 +1297,8 @@ async function loadSettings() {
   $("#tg-chat").value = tg.chat_id || "";
   $("#tg-photo").checked = tg.send_photo;
   $("#tg-video").checked = tg.send_video;
+  onbTelegram = !!(tg.enabled && tg.bot_token_set && tg.chat_id);
+  renderOnboarding();
   $("#tg-token-hint").textContent = tg.bot_token_set
     ? `currently ${tg.bot_token_hint}`
     : "not set";
@@ -1371,5 +1400,193 @@ $("#btn-save-pw").addEventListener("click", async () => {
     box.className = "result bad";
   }
 });
+
+/* ================= setup checklist ================= */
+/* Every step except "alarm" and "Telegram" is read from live state, so it
+ * ticks itself when the user does the thing by any route. The alarm test
+ * leaves no trace on the server, so that one is remembered in this
+ * browser; Telegram is fetched from the settings the server holds. */
+let onbTelegram = false;
+
+function getOnb(name) {
+  try {
+    return localStorage.getItem(`dfc.onb.${name}`) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+function setOnb(name, on) {
+  try {
+    if (on) localStorage.setItem(`dfc.onb.${name}`, "1");
+    else localStorage.removeItem(`dfc.onb.${name}`);
+  } catch (_) {}
+}
+
+async function loadOnboardingTelegram() {
+  try {
+    const tg = await api("/api/me/telegram");
+    onbTelegram = !!(tg.enabled && tg.bot_token_set && tg.chat_id);
+  } catch (_) {}
+  renderOnboarding();
+}
+
+function onbSteps() {
+  const d = currentDevice();
+  const anyOnline = devices.some((x) => x.online);
+  // Same sources as savedZone(): one drawn here, or one the camera reports
+  // from its own calibration.
+  const hasZone = devices.some(
+    (x) =>
+      (x.settings?.zone?.points?.length ? x.settings.zone.points : x.status?.zone_points || [])
+        .length >= 3,
+  );
+  return [
+    {
+      id: "camera",
+      title: "Add a camera",
+      hint: "Use this browser, or a computer or Raspberry Pi with a webcam.",
+      done: devices.length > 0,
+      action: "Add camera",
+      go: () => switchTab("devices"),
+    },
+    {
+      id: "online",
+      title: "Get the camera online",
+      hint:
+        d?.kind === "browser"
+          ? "Press Start camera here on the camera device."
+          : "Run the command from the Devices tab on the camera computer.",
+      done: anyOnline,
+      action: "Open Devices",
+      go: () => switchTab("devices"),
+    },
+    {
+      id: "zone",
+      title: "Draw the couch zone",
+      hint: "Click the couch's corners on the live picture.",
+      done: hasZone,
+      action: "Draw zone",
+      go: () => {
+        switchTab("live");
+        if (!$("#btn-zone-edit").disabled) startZoneEdit();
+      },
+    },
+    {
+      id: "alarm",
+      title: "Test the alarm",
+      hint: "Play it on the camera to hear what the dog will hear.",
+      done: getOnb("alarm"),
+      action: "Test alarm",
+      go: () => {
+        switchTab("live");
+        $("#btn-test-sound").click();
+      },
+    },
+    {
+      id: "telegram",
+      title: "Connect Telegram",
+      hint: "Optional: get a photo and the clip on your phone.",
+      optional: true,
+      done: onbTelegram,
+      action: "Open settings",
+      go: () => switchTab("settings"),
+    },
+  ];
+}
+
+function renderOnboarding() {
+  const box = $("#onboarding");
+  if (!box) return;
+  const steps = onbSteps();
+  const finished = steps.filter((s) => !s.optional).every((s) => s.done);
+  const show =
+    !getOnb("dismissed") &&
+    !steps.every((s) => s.done) &&
+    (activeTab === "live" || activeTab === "devices") &&
+    !$("#app-view").classList.contains("hidden");
+  box.classList.toggle("hidden", !show);
+  if (!show) return;
+  const doneCount = steps.filter((s) => s.done).length;
+  $("#onb-progress").textContent = finished
+    ? "Required steps done"
+    : `${doneCount} of ${steps.length} done`;
+  const current =
+    steps.find((s) => !s.done && !s.optional) || steps.find((s) => !s.done);
+  $("#onb-steps").innerHTML = steps
+    .map(
+      (s) => `
+    <li class="onb-step ${s.done ? "done" : ""} ${s === current ? "current" : ""}">
+      <span class="onb-check">${s.done ? "&#10003;" : ""}</span>
+      <div class="onb-text">
+        <b>${esc(s.title)}</b>${s.optional ? ' <span class="hint">(optional)</span>' : ""}
+        <div class="hint">${esc(s.hint)}</div>
+      </div>
+      ${s.done ? "" : `<button class="small ${s === current ? "" : "secondary"}" data-onb="${s.id}">${esc(s.action)}</button>`}
+    </li>`,
+    )
+    .join("");
+}
+
+$("#onb-steps").addEventListener("click", (e) => {
+  const id = e.target.dataset?.onb;
+  const step = id && onbSteps().find((s) => s.id === id);
+  if (step) step.go();
+});
+$("#btn-onb-dismiss").addEventListener("click", () => {
+  setOnb("dismissed", true);
+  renderOnboarding();
+  toast("Hidden. Bring it back with “Setup guide” at the bottom.");
+});
+$("#link-setup").addEventListener("click", (e) => {
+  e.preventDefault();
+  setOnb("dismissed", false);
+  if (activeTab !== "live" && activeTab !== "devices") switchTab("live");
+  renderOnboarding();
+  $("#onboarding").scrollIntoView?.({ behavior: "smooth" });
+});
+
+/* The "Add a camera" button wherever the live view has nothing to show */
+document.addEventListener("click", (e) => {
+  if (e.target.id === "btn-empty-add") switchTab("devices");
+});
+
+/* ================= troubleshooting + footer ================= */
+/* The first thing a stuck user sees is the Live tab, so the likely cause
+ * for what the camera is reporting is spelled out there rather than only
+ * in the help pages. */
+function renderTrouble(d) {
+  const box = $("#trouble");
+  let html = "";
+  let anchor = "troubleshooting";
+  if (d) {
+    const s = d.status || {};
+    const browser = d.kind === "browser";
+    if (!d.online) {
+      anchor = "offline";
+      html = browser
+        ? `<b>${esc(d.name)} is offline.</b><ul><li>Open the dashboard on that device and press <i>Start camera here</i>.</li><li>Keep its tab open and the screen awake.</li></ul>`
+        : `<b>${esc(d.name)} is offline.</b><ul><li>Is the agent running on the camera computer? On a Raspberry Pi: <code>sudo systemctl status dog-free-couch</code>.</li><li>Does that computer have internet?</li><li>Did you press <i>New token</i>? Then run the newer command.</li></ul>`;
+    } else if (s.running && !s.camera_ok) {
+      anchor = "no-signal";
+      html = `<b>The camera is not giving a picture.</b><ul><li>Close other apps using the camera (video calls, the Camera app).</li><li>${browser ? "Pick another camera on the Devices tab." : "On the camera computer run <code>python list_cameras.py</code> and pick the one with a live picture."}</li><li>A grey or frozen picture usually means the wrong camera was chosen.</li></ul>`;
+    }
+  }
+  box.innerHTML = html
+    ? `${html}<a href="/help#${anchor}" target="_blank">More help</a>`
+    : "";
+  box.classList.toggle("hidden", !html);
+}
+
+function renderFooter() {
+  $("#app-foot").classList.remove("hidden");
+  const sup = $("#link-support");
+  const fb = $("#link-feedback");
+  sup.classList.toggle("hidden", !supportEmail);
+  fb.classList.toggle("hidden", !supportEmail);
+  if (supportEmail) {
+    sup.href = `mailto:${supportEmail}?subject=${encodeURIComponent("Dog Free Couch support")}`;
+    fb.href = `mailto:${supportEmail}?subject=${encodeURIComponent("Dog Free Couch feedback")}`;
+  }
+}
 
 boot();

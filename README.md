@@ -12,6 +12,11 @@ via Telegram.
 It's built so the same code runs on your laptop's webcam today and on a
 Raspberry Pi's camera module later -- only one config line changes.
 
+> This README is the developer guide. End users get a landing page at `/`,
+> a guided setup checklist in the dashboard, and a help centre at `/help`
+> (all served by the server; source in `frontend/landing.html` and
+> `frontend/help.html`).
+
 ## 1. Install (on your laptop)
 
 Requires Python 3.9+.
@@ -208,6 +213,20 @@ The dashboard gives you:
 - **Devices** - add, rename and remove cameras; issue a new token; or turn
   the device you are reading the dashboard on into a camera itself.
 
+### One-line agent install (Linux / Raspberry Pi)
+
+The dashboard shows, next to a new camera's token, a command like
+`curl -fsSL https://your-site/install.sh | bash -s -- --server https://your-site --token dfc_...`.
+The server serves `frontend/install-agent.sh`, which installs the system
+packages, clones the agent to `~/dog-free-couch`, builds a venv, fetches the
+model, saves the token and installs a systemd service
+(`dog-free-couch.service`) that starts at boot, restarts on failure and runs
+`git pull` before each start. `--pi` selects `picamera2`; `--no-service`
+skips systemd; `--dry-run` prints the steps without doing anything. The
+script clones `https://github.com/RavivGilady/dog-free-couch.git` unless
+`--repo` says otherwise. Windows and macOS have no installer yet; `/help`
+lists the manual steps.
+
 ### Using a browser as the camera
 
 If the computer or phone you are reading the dashboard on is the one facing
@@ -331,6 +350,7 @@ Postgres + S3.
 | `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
 | `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
+| `SUPPORT_EMAIL`                             | empty                       | Address behind the help pages' and dashboard's "Contact support" / "Send feedback" links; empty hides them |
 
 **Run one server process.** The live view keeps the latest frame of each
 camera in memory, so the image runs a single gunicorn worker with many
