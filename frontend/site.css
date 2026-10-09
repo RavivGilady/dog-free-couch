@@ -197,3 +197,48 @@ pre.cmd {
     padding-top: 28px;
   }
 }
+
+/* illustrations */
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 32px;
+  align-items: center;
+  max-width: none;
+}
+.shot {
+  margin: 0;
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+.shot figcaption {
+  margin-top: 8px;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 40px;
+  align-items: center;
+  margin-top: 40px;
+}
+.split h2 {
+  margin-top: 0;
+}
+.shot.phone img {
+  border: 0;
+  border-radius: 0;
+  max-width: 280px;
+  margin: 0 auto;
+}
+@media (max-width: 760px) {
+  .hero-grid,
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}

@@ -515,6 +515,9 @@ def test_public_pages_and_app_route():
         assert b"Dog Free Couch" in anon.get("/app").data
         assert b'id="auth-form"' in anon.get("/app").data
         assert anon.get("/help").status_code == 200
+        for img in ("hero", "alert"):
+            r = anon.get(f"/assets/img/{img}.svg")
+            assert r.status_code == 200 and b"<svg" in r.data
         # Signed-in people still land on their dashboard at "/".
         b = Browser(app, "pages@example.com")
         assert b'id="auth-form"' in b.c.get("/").data

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 560" role="img" aria-label="A phone showing a Telegram message from the Dog Free Couch bot: a photo of the dog on the couch, then the video clip">
+  <defs>
+    <clipPath id="ph"><rect x="26" y="150" width="236" height="150" rx="12"/></clipPath>
+  </defs>
+  <!-- phone -->
+  <rect x="20" y="8" width="320" height="544" rx="40" fill="#1b1f27"/>
+  <rect x="32" y="22" width="296" height="516" rx="30" fill="#e7ebf0"/>
+  <rect x="136" y="30" width="88" height="20" rx="10" fill="#1b1f27"/>
+  <!-- header -->
+  <rect x="32" y="56" width="296" height="62" fill="#517da2"/>
+  <circle cx="68" cy="87" r="19" fill="#ffb020"/>
+  <text x="68" y="94" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="19" font-weight="800" fill="#1a1100">D</text>
+  <text x="96" y="84" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="16" font-weight="700" fill="#fff">Dog Free Couch</text>
+  <text x="96" y="104" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="12" fill="#d6e4f1">bot</text>
+
+  <!-- message 1: photo -->
+  <rect x="42" y="134" width="260" height="200" rx="16" fill="#fff"/>
+  <g transform="translate(8 0)">
+    <g clip-path="url(#ph)">
+      <rect x="26" y="150" width="236" height="150" fill="#dccfbd"/>
+      <rect x="26" y="262" width="236" height="40" fill="#a98059"/>
+      <!-- couch -->
+      <rect x="44" y="216" width="200" height="50" rx="14" fill="#5b7a99"/>
+      <rect x="34" y="230" width="26" height="54" rx="10" fill="#4d6a87"/>
+      <rect x="228" y="230" width="26" height="54" rx="10" fill="#4d6a87"/>
+      <rect x="56" y="240" width="176" height="32" rx="8" fill="#6a8aa9"/>
+      <!-- dog -->
+      <ellipse cx="156" cy="246" rx="34" ry="19" fill="#c98a4b"/>
+      <ellipse cx="136" cy="226" rx="23" ry="21" fill="#c98a4b"/>
+      <ellipse cx="124" cy="227" rx="8" ry="17" fill="#9a622c"/>
+      <ellipse cx="148" cy="219" rx="7" ry="14" fill="#9a622c"/>
+      <ellipse cx="124" cy="238" rx="12" ry="8" fill="#e8c9a0"/>
+      <circle cx="118" cy="235" r="3" fill="#2b2118"/>
+      <!-- detection -->
+      <rect x="104" y="198" width="104" height="72" rx="3" fill="none" stroke="#ef4444" stroke-width="2.5"/>
+    </g>
+  </g>
+  <text x="54" y="320" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="13.5" font-weight="700" fill="#12151b">Dog on the couch</text>
+  <text x="282" y="322" text-anchor="end" font-family="ui-sans-serif,system-ui,sans-serif" font-size="10.5" fill="#8a95a3">14:32</text>
+
+  <!-- message 2: video clip -->
+  <rect x="42" y="348" width="260" height="130" rx="16" fill="#fff"/>
+  <rect x="52" y="358" width="240" height="90" rx="10" fill="#2a3340"/>
+  <circle cx="172" cy="403" r="24" fill="#000" fill-opacity="0.55"/>
+  <path d="M164 390l24 13-24 13z" fill="#fff"/>
+  <rect x="60" y="428" width="224" height="4" rx="2" fill="#fff" fill-opacity="0.3"/>
+  <rect x="60" y="428" width="86" height="4" rx="2" fill="#ffb020"/>
+  <text x="56" y="470" font-family="ui-sans-serif,system-ui,Segoe UI,sans-serif" font-size="12.5" fill="#5d6675">Clip &#183; 0:12 &#183; includes the lead-up</text>
+  <text x="282" y="470" text-anchor="end" font-family="ui-sans-serif,system-ui,sans-serif" font-size="10.5" fill="#8a95a3">14:32</text>
+
+</svg>

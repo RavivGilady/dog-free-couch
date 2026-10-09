@@ -23,7 +23,8 @@
     </nav>
 
     <main class="site-wrap">
-      <section class="hero">
+      <section class="hero hero-grid">
+        <div>
         <h1>Know the moment the dog gets on the couch.</h1>
         <p class="lead">
           Point a webcam, a laptop or an old phone at the couch. When a dog
@@ -37,6 +38,19 @@
           <a class="btn secondary" href="#how">See how it works</a>
         </div>
         <p class="hint">No card needed. Setup takes about ten minutes.</p>
+        </div>
+        <figure class="shot">
+          <img
+            src="/assets/img/hero.svg"
+            width="800"
+            height="520"
+            alt="A camera's view of a living room: a dog on the couch, outlined by the detector inside the couch zone, with a DOG ON COUCH alert"
+          />
+          <figcaption class="hint">
+            What the camera sees. The dashed outline is the couch zone you
+            draw; the red box is the dog. (Illustration)
+          </figcaption>
+        </figure>
       </section>
 
       <section id="how">
@@ -75,6 +89,32 @@
             </p>
           </div>
         </div>
+      </section>
+
+      <section class="split">
+        <div>
+          <h2>The proof lands on your phone</h2>
+          <p class="muted">
+            When the dog gets on, you get a photo straight away, then the
+            video clip with a few seconds from before the jump, so you see
+            what happened rather than guess. Meanwhile the alarm sounds in
+            the room: a siren, or your own voice telling them to get down.
+          </p>
+          <ul class="muted">
+            <li>Photo and clip sent through your own Telegram bot</li>
+            <li>Choose how often the alarm repeats</li>
+            <li>Watch live from anywhere, whenever you want to look</li>
+          </ul>
+        </div>
+        <figure class="shot phone">
+          <img
+            src="/assets/img/alert.svg"
+            width="360"
+            height="560"
+            loading="lazy"
+            alt="A phone showing a Telegram message from the bot: a photo of the dog on the couch, and the video clip below it"
+          />
+        </figure>
       </section>
 
       <section>
