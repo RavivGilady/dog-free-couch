@@ -22,6 +22,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory, session
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .config import Config
@@ -132,14 +133,22 @@ def _register_auth(app: Flask) -> None:
         if len(password) < 8:
             return error("Pick a password of at least 8 characters.")
         s = db()
-        if s.query(User).filter_by(email=email).first():
+        taken = bool(s.query(User).filter_by(email=email).first())
+        if not taken:
+            user = User(email=email, password_hash=generate_password_hash(password))
+            s.add(user)
+            try:
+                s.commit()
+            except IntegrityError:
+                # Two sign-ups raced past the check above (a double-clicked
+                # button); the unique index caught the second one.
+                s.rollback()
+                taken = True
+        if taken:
             # Counted as a failure so this can't be used to cheaply
             # enumerate which addresses have accounts.
             _fail(ip)
             return error("An account with that email already exists.", 409)
-        user = User(email=email, password_hash=generate_password_hash(password))
-        s.add(user)
-        s.commit()
         login_user(user)
         return jsonify(_me_payload(user)), 201
 
