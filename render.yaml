@@ -1,0 +1,30 @@
+# Render Blueprint: deploys the server from the Dockerfile.
+# Secrets marked sync:false are prompted for in the dashboard; see deploy/RENDER.md.
+services:
+  - type: web
+    name: dog-free-couch
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SECURE_COOKIES
+        value: "1"
+      # Render's disk is wiped on redeploy, so state lives outside it.
+      - key: DATABASE_URL # Neon connection string
+        sync: false
+      - key: STORAGE
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL # https://<account-id>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
