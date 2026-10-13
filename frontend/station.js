@@ -103,6 +103,7 @@ const Station = (() => {
     return {
       running: false,
       camera_ok: false,
+      audio_ok: false,
       dog_on_couch: false,
       dogs_in_frame: 0,
       persons_in_frame: 0,
@@ -466,7 +467,20 @@ const Station = (() => {
    * Lead-in is therefore up to pre_roll + 2s rather than exactly pre_roll.
    */
   function makeRecorder(mediaStream) {
+    // With a mic in the stream the codec string has to name an audio codec
+    // too: asking for "codecs=vp9" alone gets a video-only recording out of
+    // a stream that has sound in it, which is exactly the silent clip this
+    // is here to avoid. The video-only strings stay as the fallback for a
+    // station whose mic was refused, or a browser that won't do opus.
+    const hasAudio = mediaStream.getAudioTracks().length > 0;
     const mime = [
+      ...(hasAudio
+        ? [
+            'video/webm;codecs="vp9,opus"',
+            'video/webm;codecs="vp8,opus"',
+            "video/webm",
+          ]
+        : []),
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
       "video/webm",
@@ -490,6 +504,7 @@ const Station = (() => {
       rec = new MediaRecorder(mediaStream, {
         mimeType: mime,
         videoBitsPerSecond: 1500000,
+        audioBitsPerSecond: 96000,
       });
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size) chunks.push(e.data);
@@ -1008,12 +1023,28 @@ const Station = (() => {
 
     try {
       setPhase("Waiting for permission to use the camera\u2026");
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: cameraId
-          ? { deviceId: { exact: cameraId } }
-          : { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      const videoWanted = cameraId
+        ? { deviceId: { exact: cameraId } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 } };
+      // The microphone goes into the clips, so it is asked for together
+      // with the camera -- the browser prompts for both at once. Refusing
+      // the mic refuses the whole call, though, and a station with no sound
+      // beats no station at all, so that drops back to video alone.
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoWanted,
+          // The alarm is going off in the same room: processing meant for
+          // a voice call would gate it away as noise, and the alarm is
+          // half of what makes the clip worth hearing.
+          audio: { echoCancellation: false, noiseSuppression: false },
+        });
+      } catch (e) {
+        log(`no microphone (${e.name || e.message}); clips will be silent`);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoWanted,
+          audio: false,
+        });
+      }
       video.srcObject = stream;
       await video.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
@@ -1022,6 +1053,12 @@ const Station = (() => {
         `camera open: ${track?.label || "unnamed"} ` +
           `${got.width || "?"}x${got.height || "?"}` +
           `${got.frameRate ? ` @ ${Math.round(got.frameRate)} fps` : ""}`,
+      );
+      const mic = stream.getAudioTracks()[0];
+      log(
+        mic
+          ? `microphone open: ${mic.label || "unnamed"}`
+          : "no microphone: clips will be silent",
       );
 
       setPhase("Registering this device as a camera\u2026");
@@ -1073,6 +1110,7 @@ const Station = (() => {
       running: true,
       started_at: nowSec(),
       camera_ok: true,
+      audio_ok: stream.getAudioTracks().length > 0,
       last_error: recorder
         ? null
         : "This browser can't record clips, so only snapshots are saved.",
