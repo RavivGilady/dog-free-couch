@@ -332,6 +332,9 @@ Postgres + S3.
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
 | `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
 
+Logging, Sentry, health checks, `/metrics` and alert rules (`LOG_LEVEL`,
+`SENTRY_DSN`, `RELEASE`, `METRICS_TOKEN`): see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
 **Run one server process.** The live view keeps the latest frame of each
 camera in memory, so the image runs a single gunicorn worker with many
 threads. That comfortably serves a household or a few dozen users; going

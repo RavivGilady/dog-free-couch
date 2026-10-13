@@ -9,9 +9,11 @@ Telegram must never fail an agent's upload.
 """
 from __future__ import annotations
 
-import sys
+import logging
 
 import requests
+
+log = logging.getLogger("dfc.telegram")
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_VIDEO_BYTES = 50 * 1024 * 1024  # Telegram's bot upload limit
@@ -30,7 +32,7 @@ def send_photo(token: str, chat_id: str, caption: str, jpeg: bytes | None) -> bo
             r = _post(token, "sendMessage", 10, data={"chat_id": chat_id, "text": caption})
         return r.ok
     except Exception as e:
-        print(f"[telegram] photo failed: {e}", file=sys.stderr)
+        log.warning("photo failed: %s", e.__class__.__name__)
         return False
 
 
@@ -44,10 +46,10 @@ def send_video(token: str, chat_id: str, caption: str, data: bytes, filename: st
         r = _post(token, "sendVideo", 120, data={"chat_id": chat_id, "caption": caption},
                   files={"video": (filename, data)})
         if not r.ok:
-            print(f"[telegram] sendVideo failed: {r.status_code} {r.text[:200]}", file=sys.stderr)
+            log.warning("sendVideo failed: HTTP %s %s", r.status_code, r.text[:200])
         return r.ok
     except Exception as e:
-        print(f"[telegram] video failed: {e}", file=sys.stderr)
+        log.warning("video failed: %s", e.__class__.__name__)
         return False
 
 

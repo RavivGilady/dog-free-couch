@@ -46,6 +46,12 @@ class LocalStorage:
         tmp.replace(p)
         return p.stat().st_size
 
+    def check(self) -> None:
+        """Readiness probe: the media directory is writable."""
+        probe = self.root / ".healthcheck"
+        probe.write_bytes(b"ok")
+        probe.unlink()
+
     def read_bytes(self, key: str) -> bytes:
         return self._path(key).read_bytes()
 
@@ -82,6 +88,9 @@ class S3Storage:
         ctype = mimetypes.guess_type(key)[0] or "application/octet-stream"
         self.s3.upload_fileobj(fileobj, self.bucket, key, ExtraArgs={"ContentType": ctype})
         return int(self.s3.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+
+    def check(self) -> None:
+        self.s3.head_bucket(Bucket=self.bucket)
 
     def read_bytes(self, key: str) -> bytes:
         return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()

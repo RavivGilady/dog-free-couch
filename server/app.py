@@ -15,7 +15,7 @@ pushes only while someone is watching the live view.
 from __future__ import annotations
 
 import re
-import sys
+import logging
 import threading
 import time
 from datetime import timedelta
@@ -27,10 +27,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .config import Config
 from .ext import current_user, db, error, login_required, login_user
 from .live import LiveHub
+from . import observability
 from .models import Event, User, make_session_factory
 from .storage import make_storage
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+log = logging.getLogger("dfc.retention")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Login throttling per source address. In-memory on purpose: one process,
@@ -78,6 +80,7 @@ def create_app(config: Config | None = None, start_background: bool = True) -> F
 
     from .agent_api import bp as agent_bp
     from .api import bp as api_bp
+    observability.init_app(app)
     app.register_blueprint(api_bp)
     app.register_blueprint(agent_bp)
     _register_auth(app)
@@ -199,10 +202,6 @@ def _register_frontend(app: Flask) -> None:
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
-    @app.get("/healthz")
-    def healthz():
-        return jsonify({"ok": True})
-
 
 # --------------------------------------------------------------------------
 # retention
@@ -213,8 +212,8 @@ def _retention_loop(app: Flask) -> None:
         try:
             with app.app_context():
                 prune_old_events(app)
-        except Exception as e:
-            print(f"[retention] sweep failed: {e}", file=sys.stderr)
+        except Exception:
+            log.exception("retention sweep failed")
         finally:
             app.extensions["dfc"]["db"].remove()
         time.sleep(3600)

@@ -2,7 +2,8 @@
 # (laptop / Raspberry Pi) and is not part of this image.
 FROM python:3.12-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+ARG RELEASE=
+ENV RELEASE=$RELEASE PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     DATA_DIR=/data PORT=8000
 
 WORKDIR /app
@@ -22,4 +23,4 @@ EXPOSE 8000
 # ONE worker: the live-view relay holds frames in memory. Threads give the
 # concurrency (each open live view holds one).
 CMD gunicorn --bind 0.0.0.0:${PORT} --workers 1 --worker-class gthread --threads 64 \
-    --timeout 120 --access-logfile - "server.app:create_app()"
+    --timeout 120 "server.app:create_app()"

@@ -71,6 +71,22 @@ def anchor_paths(config: dict, base: Path) -> None:
                 values[key] = str(base / path)
 
 
+def init_sentry() -> None:
+    """Optional crash reporting: set DFC_SENTRY_DSN (and DFC_RELEASE)."""
+    dsn = os.environ.get("DFC_SENTRY_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+    except ImportError:
+        print("DFC_SENTRY_DSN is set but sentry-sdk is not installed "
+              "(pip install sentry-sdk).", file=sys.stderr)
+        return
+    sentry_sdk.init(dsn=dsn, release=os.environ.get("DFC_RELEASE") or None,
+                    send_default_pii=False, traces_sample_rate=0)
+    sentry_sdk.set_tag("component", "agent")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Dog Free Couch camera agent")
     ap.add_argument("--config", default=str(PROJECT_DIR / "config.yaml"))
@@ -96,6 +112,7 @@ def main():
               "the dashboard (or run `python calibrate.py` here); until then "
               "nothing counts as being on the couch.", file=sys.stderr)
 
+    init_sentry()
     client = CloudClient(server, resolve_token(args.token))
     uploader = Uploader(client, delete_after_upload=not args.keep_local)
     settings = RemoteSettings()

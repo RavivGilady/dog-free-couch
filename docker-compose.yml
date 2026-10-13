@@ -7,20 +7,35 @@
 #   3. docker compose up -d
 services:
   server:
-    build: .
+    build:
+      context: .
+      args:
+        RELEASE: ${RELEASE:-}
     restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}   # the disk cannot fill with logs
     environment:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       TRUST_PROXY: "1"
       SECURE_COOKIES: "1"
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-1}
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes:
       - couch-data:/data
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"
