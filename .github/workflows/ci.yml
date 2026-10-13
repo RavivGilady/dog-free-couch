@@ -26,7 +26,18 @@ jobs:
           pip install -r requirements.txt -r server/requirements.txt pytest
           # The runner has no libGL; swap in the headless OpenCV build.
           pip uninstall -y opencv-python
-          pip install opencv-python-headless
+          # Same <5 cap as requirements.txt: OpenCV 5 dropped the Caffe loader
+          # the detector needs.
+          pip install "opencv-python-headless>=4.8,<5"
+      - name: Cache detector model
+        id: model
+        uses: actions/cache@v4
+        with:
+          path: models/MobileNetSSD_deploy.caffemodel
+          key: mobilenet-ssd-caffemodel-v1
+      - name: Download detector model
+        if: steps.model.outputs.cache-hit != 'true'
+        run: python download_model.py
       - name: Run tests
         run: python -m pytest -q
 

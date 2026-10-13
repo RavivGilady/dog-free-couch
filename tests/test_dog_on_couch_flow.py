@@ -1,11 +1,9 @@
-"""End to end, with a mocked camera: show a dog picture, set the zone, and the
-couch alert fires on its own.
+"""End to end with a mocked camera: a real dog photo, the real detector.
 
-The camera replays one synthetic "dog picture" and the detector is a stand-in
-that finds the dog in it by colour (the real MobileNet-SSD weights are a
-download, not part of the repo). Everything else is the real MonitorService:
-capture thread, detection thread, zone scaling, debounce, snapshot, event
-store. No hardware, no model, no network.
+The camera is the only fake -- it replays a photo of a dog on a couch (or an
+empty frame). Detection is the real MobileNet-SSD model, so these tests also
+prove the model finds the dog; they are skipped where the weights have not
+been downloaded (python download_model.py).
 """
 import shutil
 import sys
@@ -13,153 +11,208 @@ import tempfile
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import service
-from detector import Detection
-from service import MonitorService
+import flow_fakes as ff
+from flow_fakes import wait_for
 
-W, H = 640, 480
-DOG_BGR = (40, 90, 150)       # a brown dog
-DOG_BOX = (200, 220, 360, 340)  # x1, y1, x2, y2 where the dog sits
+pytestmark = pytest.mark.skipif(
+    not ff.MODEL_AVAILABLE, reason="model weights missing: run download_model.py")
 
-
-def dog_picture():
-    frame = np.full((H, W, 3), 200, np.uint8)
-    x1, y1, x2, y2 = DOG_BOX
-    frame[y1:y2, x1:x2] = DOG_BGR
-    return frame
+# Short clip padding keeps the long tests quick; the logic is the same.
+VIDEO = {"pre_roll_sec": 2, "post_roll_sec": 1, "max_clip_sec": 60}
+FPS = 15
 
 
-class FakeCamera:
-    def __init__(self, frame):
-        self.frame = frame
-        self.released = False
-
-    def read(self):
-        time.sleep(0.01)  # a camera is not infinitely fast
-        return self.frame.copy()
-
-    def release(self):
-        self.released = True
+@pytest.fixture
+def tmp():
+    d = Path(tempfile.mkdtemp())
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
 
 
-class ColourDogDetector:
-    """Reports a dog wherever the picture has dog-coloured pixels."""
+@pytest.fixture
+def running(monkeypatch, tmp):
+    """Start services through here so they are always stopped."""
+    started = []
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def start(camera, **kw):
+        svc, store = ff.start_service(monkeypatch, tmp, camera, **kw)
+        started.append(svc)
+        return svc, store
 
-    def detect(self, frame, wanted_labels=None):
-        ys, xs = np.where((frame == DOG_BGR).all(axis=2))
-        if not len(xs):
-            return []
-        box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
-        return [Detection("dog", 0.9, box)]
-
-
-class FakeSettings:
-    def all(self):
-        return {"video": {}, "alert": {"play_sound": False}, "telegram": {}}
-
-    def get(self, section, key, default=None):
-        return False if (section, key) == ("video", "enabled") else default
+    yield start
+    for s in started:
+        s.stop()
 
 
-class FakeStore:
-    def __init__(self):
-        self.entered = []
-        self.left = []
+# ---------- helpers for reading a recorded clip back ----------
 
-    def add_entered(self, start, confidence, snapshot_path):
-        self.entered.append((start, confidence, snapshot_path))
-        return len(self.entered)
-
-    def add_left(self, *args):
-        self.left.append(args)
-
-    def mark_notified(self, event_id):
-        pass
-
-    def attach_video(self, event_id, path):
-        pass
+def read_clip(path):
+    cap = cv2.VideoCapture(path)
+    frames = []
+    while True:
+        ok, f = cap.read()
+        if not ok:
+            break
+        frames.append(f)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    return frames, fps
 
 
-def wait_for(cond, timeout=5.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        if cond():
-            return True
-        time.sleep(0.02)
-    return False
+def classify(frames):
+    """'dog' / 'empty' for each frame, by which reference picture it is
+    closer to (robust to video compression)."""
+    refs = {"dog": ff.dog_frame().astype(np.float32),
+            "empty": ff.empty_frame().astype(np.float32)}
+    out = []
+    for f in frames:
+        d = {k: float(np.abs(f.astype(np.float32) - r).mean()) for k, r in refs.items()}
+        out.append(min(d, key=d.get))
+    return out
 
 
-def start_service(monkeypatch, tmp, picture):
-    monkeypatch.setattr(service, "get_camera", lambda config: FakeCamera(picture))
-    monkeypatch.setattr(service, "Detector", ColourDogDetector)
-    config = {
-        "alert": {"video_dir": str(tmp / "videos"), "snapshot_dir": str(tmp / "snaps")},
-        "debounce": {"enter_frames": 3, "exit_frames": 3, "min_alert_interval_sec": 0},
-        "model": {"max_detect_fps": 0},
-    }
-    store = FakeStore()
-    svc = MonitorService(config, store=store, settings=FakeSettings())
-    svc.start()
-    assert wait_for(lambda: svc.status["running"] and svc.status["fps"] > 0)
-    return svc, store
+def runs(labels):
+    """['empty','empty','dog'] -> [('empty', 2), ('dog', 1)]"""
+    out = []
+    for label in labels:
+        if out and out[-1][0] == label:
+            out[-1] = (label, out[-1][1] + 1)
+        else:
+            out.append((label, 1))
+    return out
 
 
-def test_dog_picture_triggers_alert_once_zone_is_set(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    svc = None
-    try:
-        svc, store = start_service(monkeypatch, tmp, dog_picture())
+# ---------- the zone -> alert hand-off ----------
 
-        # The dog is in view, but there is no couch zone yet: seen, not alerted.
-        assert wait_for(lambda: svc.status["dogs_in_frame"] == 1)
-        time.sleep(0.3)
-        assert svc.status["dog_on_couch"] is False
-        assert store.entered == []
+def test_real_dog_photo_triggers_alert_once_zone_is_set(running):
+    cam = ff.FakeCamera(ff.dog_frame())
+    svc, store = running(cam)
 
-        # Draw the zone over the dog, as fractions of the frame, like the dashboard.
-        svc.update_zone([(0.25, 0.4), (0.7, 0.4), (0.7, 0.8), (0.25, 0.8)], 0.35)
+    # The real model sees the dog, but with no couch zone nothing counts.
+    assert wait_for(lambda: svc.status["dogs_in_frame"] == 1)
+    time.sleep(0.5)
+    assert svc.status["dog_on_couch"] is False
+    assert store.entered == []
 
-        assert wait_for(lambda: len(store.entered) == 1)
-        assert svc.status["dog_on_couch"] is True
-        _, confidence, snapshot = store.entered[0]
-        assert confidence == 0.9
-        assert snapshot and Path(snapshot).exists()  # the dog photo was saved
-        assert len(svc.status["zone_points"]) == 4
+    # Draw the zone over the couch, as the dashboard does.
+    svc.update_zone(ff.COUCH_ZONE, 0.35)
 
-        # The live view now shows the dog boxed as in-zone.
-        import cv2
-        jpeg, _ = svc.wait_for_jpeg(0, timeout=2.0)
-        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
-        assert img.shape == (H, W, 3)
-        x1, y1, _, _ = DOG_BOX
-        b, g, r = (int(v) for v in img[y1, x1 + 40])  # on the top edge of the box
-        assert r > 150 and g < 100 and b < 100  # red = in zone
-    finally:
-        if svc:
-            svc.stop()
-        shutil.rmtree(tmp, ignore_errors=True)
+    assert wait_for(lambda: len(store.entered) == 1)
+    assert svc.status["dog_on_couch"] is True
+    assert store.entered[0]["confidence"] > 0.5
+    snap = cv2.imread(store.entered[0]["snapshot"])
+    assert snap is not None and snap.shape[:2] == (ff.H, ff.W)  # the saved photo
+
+    # The live view boxes the dog as in-zone: red pixels around the box.
+    jpeg, _ = svc.wait_for_jpeg(0, timeout=2.0)
+    img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    red = (img[..., 2] > 200) & (img[..., 1] < 60) & (img[..., 0] < 60)
+    assert red.sum() > 200
 
 
-def test_zone_away_from_the_dog_never_alerts(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    svc = None
-    try:
-        svc, store = start_service(monkeypatch, tmp, dog_picture())
-        # Couch in the top-left corner; the dog is elsewhere.
-        svc.update_zone([(0.0, 0.0), (0.2, 0.0), (0.2, 0.2), (0.0, 0.2)], 0.35)
+def test_zone_away_from_the_dog_never_alerts(running):
+    svc, store = running(ff.FakeCamera(ff.dog_frame()))
+    svc.update_zone(ff.FAR_ZONE, 0.35)
 
-        assert wait_for(lambda: svc.status["dogs_in_frame"] == 1)
-        time.sleep(0.5)
-        assert svc.status["dog_on_couch"] is False
-        assert store.entered == []
-    finally:
-        if svc:
-            svc.stop()
-        shutil.rmtree(tmp, ignore_errors=True)
+    assert wait_for(lambda: svc.status["dogs_in_frame"] == 1)
+    time.sleep(1.0)
+    assert svc.status["dog_on_couch"] is False
+    assert store.entered == []
+
+
+# ---------- events and their clips ----------
+
+def test_one_long_stay_is_one_event_with_pre_and_post_roll(running):
+    """A dog that sits for a long time is a single event and a single clip:
+    a few seconds of empty couch before it jumped up, the whole stay, and a
+    little after it left."""
+    cam = ff.FakeCamera(ff.empty_frame())
+    svc, store = running(cam, record=True, video=VIDEO)
+    svc.update_zone(ff.COUCH_ZONE, 0.35)
+    time.sleep(3.0)                       # empty couch fills the pre-roll buffer
+
+    stay = 10.0
+    cam.show(ff.dog_frame())
+    time.sleep(stay)
+    cam.show(ff.empty_frame())
+
+    assert wait_for(lambda: len(store.left) == 1 and len(store.videos) == 1, 15)
+    time.sleep(1.0)                       # long enough for a bogus extra event
+
+    assert len(store.entered) == 1 and len(store.left) == 1
+    assert store.left[0]["duration"] == pytest.approx(stay, abs=2.0)
+
+    frames, fps = read_clip(store.videos[1])
+    assert fps == pytest.approx(FPS, abs=1)
+    labels = classify(frames)
+    shape = runs(labels)
+    # One contiguous shot: empty (pre-roll) -> dog (the stay) -> empty (post-roll).
+    assert [s for s, _ in shape] == ["empty", "dog", "empty"], shape
+    before, dog, after = (n for _, n in shape)
+    assert before >= 0.5 * VIDEO["pre_roll_sec"] * FPS          # saw it coming
+    assert after >= 0.3 * VIDEO["post_roll_sec"] * FPS          # saw it leave
+    assert dog >= 0.8 * stay * FPS                              # the whole stay
+    assert len(frames) / fps == pytest.approx(stay + 3.0, abs=2.5)
+
+
+def test_dog_back_on_the_couch_after_a_gap_is_a_second_event(running):
+    """Dog leaves, the first clip closes, dog hops back up: that is a new
+    event with its own clip, not a continuation of the first."""
+    cam = ff.FakeCamera(ff.empty_frame())
+    svc, store = running(cam, record=True, video=VIDEO,
+                         debounce={"min_alert_interval_sec": 1})
+    svc.update_zone(ff.COUCH_ZONE, 0.35)
+    time.sleep(2.0)
+
+    cam.show(ff.dog_frame())
+    assert wait_for(lambda: len(store.entered) == 1)
+    time.sleep(3.0)
+    cam.show(ff.empty_frame())
+    assert wait_for(lambda: len(store.left) == 1 and len(store.videos) == 1, 10)
+
+    time.sleep(1.5)                       # a short breather, then back up
+    cam.show(ff.dog_frame())
+    assert wait_for(lambda: len(store.entered) == 2, 10)
+    time.sleep(3.0)
+    cam.show(ff.empty_frame())
+    assert wait_for(lambda: len(store.left) == 2 and len(store.videos) == 2, 15)
+
+    assert len(store.entered) == 2 and len(store.left) == 2
+    assert store.entered[1]["start"] > store.left[0]["end"]
+    first, second = store.videos[1], store.videos[2]
+    assert first != second
+    for path in (first, second):
+        frames, _ = read_clip(path)
+        assert "dog" in classify(frames)  # each clip really shows the dog
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "known gap: if the dog is back on the couch while the first clip is still "
+    "in its post-roll, recorder.start() returns the open clip, so the second "
+    "event never gets a video of its own"))
+def test_dog_back_during_post_roll_still_gets_its_own_clip(running):
+    cam = ff.FakeCamera(ff.empty_frame())
+    svc, store = running(cam, record=True, video=VIDEO,
+                         debounce={"min_alert_interval_sec": 1})
+    svc.update_zone(ff.COUCH_ZONE, 0.35)
+    time.sleep(2.0)
+
+    cam.show(ff.dog_frame())
+    time.sleep(3.0)
+    cam.show(ff.empty_frame())
+    time.sleep(0.6)                       # back before the 1s post-roll is over
+    cam.show(ff.dog_frame())
+    time.sleep(3.0)
+    cam.show(ff.empty_frame())
+    assert wait_for(lambda: len(store.left) == 2, 10)
+    time.sleep(2.0)
+
+    assert len(store.entered) == 2        # the alert itself does fire again
+    assert len(store.videos) == 2
