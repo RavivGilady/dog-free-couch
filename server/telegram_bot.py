@@ -118,7 +118,19 @@ def start(app) -> None:
 
 def _poll(app) -> None:
     token = app.config["DFC"].TELEGRAM_BOT_TOKEN
-    telegram.delete_webhook(token)  # getUpdates is refused while a webhook is set
+    # getUpdates is refused while a webhook is set, and removing one would
+    # steal the bot from whoever registered it -- typically the production
+    # server, whose users' codes this database has never heard of. So a dev
+    # server only polls when the bot has no webhook; use a separate bot
+    # (or delete the webhook yourself) to develop against.
+    url = telegram.webhook_url(token)
+    if url is None:
+        log.warning("could not check the bot's webhook; not polling")
+        return
+    if url:
+        log.warning("this bot has a webhook set (%s); not polling so it keeps working",
+                    url.split("/api/")[0])
+        return
     offset = 0
     while True:
         try:
