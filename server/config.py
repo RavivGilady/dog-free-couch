@@ -28,9 +28,12 @@ class Config:
         # SQLite is fine for a handful of users; point this at Postgres
         # (postgresql+psycopg://...) for anything bigger.
         self.DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{data_dir / 'server.db'}")
-        # Some hosts hand out "postgres://", which SQLAlchemy 2 rejects.
-        if self.DATABASE_URL.startswith("postgres://"):
-            self.DATABASE_URL = "postgresql+psycopg://" + self.DATABASE_URL[len("postgres://"):]
+        # Hosts hand out "postgres://" (rejected by SQLAlchemy 2) or plain
+        # "postgresql://" (which would pick psycopg2; we ship psycopg 3).
+        for prefix in ("postgres://", "postgresql://"):
+            if self.DATABASE_URL.startswith(prefix):
+                self.DATABASE_URL = "postgresql+psycopg://" + self.DATABASE_URL[len(prefix):]
+                break
 
         # "local" keeps media on disk under MEDIA_DIR; "s3" uses any
         # S3-compatible bucket (AWS, Cloudflare R2, Backblaze B2, MinIO).

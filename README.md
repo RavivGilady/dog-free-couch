@@ -332,6 +332,9 @@ Two things to know while editing:
 Caddy gets a TLS certificate automatically. Data (SQLite db and clips)
 lives in the `couch-data` volume.
 
+**Free, on Render + Neon + Cloudflare R2:** see
+[deploy/RENDER.md](deploy/RENDER.md) -- a `render.yaml` Blueprint, no VM to manage.
+
 **A PaaS** (Render, Railway, Fly.io...): deploy the `Dockerfile` and set
 the environment variables below. These hosts usually wipe the container
 disk on redeploy, so either attach a persistent volume at `/data` or use

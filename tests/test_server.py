@@ -106,6 +106,24 @@ def test_auth_flow_and_csrf():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_signup_race_on_same_email_is_a_409_not_a_500():
+    # Two sign-ups can both pass the "already exists?" check before either
+    # commits; the unique index then rejects the second.
+    from unittest import mock
+
+    from sqlalchemy.orm import Query
+
+    app, tmp = make_app()
+    try:
+        body = {"email": "a@x.io", "password": "password123"}
+        assert app.test_client().post("/api/auth/register", json=body).status_code == 201
+        with mock.patch.object(Query, "first", return_value=None):
+            r = app.test_client().post("/api/auth/register", json=body)
+        assert r.status_code == 409
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_signup_can_be_closed():
     app, tmp = make_app()
     try:
