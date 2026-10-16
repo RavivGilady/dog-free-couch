@@ -479,6 +479,29 @@ def test_live_frames_only_relayed_while_watched():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_cached_frame_token_is_dropped_on_rotation_and_delete():
+    """Frames skip the database for a token seen recently, but a rotated or
+    deleted token must stop working at once, not when the cache expires."""
+    app, tmp = make_app()
+    try:
+        b = Browser(app, "a@x.io")
+        dev_id, token = b.add_device()
+        agent = Agent(app, token)
+        hdr = {"Content-Type": "image/jpeg"}
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 200
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 200  # cached
+
+        new = b.req("post", f"/api/devices/{dev_id}/token").get_json()["token"]
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 401
+        fresh = Agent(app, new)
+        assert fresh.post("/frame", data=JPEG, headers=hdr).status_code == 200
+
+        assert b.req("delete", f"/api/devices/{dev_id}").status_code == 200
+        assert fresh.post("/frame", data=JPEG, headers=hdr).status_code == 401
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_stream_ends_when_camera_is_silent():
     """An offline camera must not pin a server thread forever."""
     import server.api as api
