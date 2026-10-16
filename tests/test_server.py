@@ -614,3 +614,20 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     sys.exit(1 if failures else 0)
+
+
+def test_late_frame_does_not_replace_a_newer_one():
+    app, tmp = make_app()
+    try:
+        b = Browser(app, "a@x.io")
+        dev_id, token = b.add_device()
+        agent = Agent(app, token)
+        hub = app.extensions["dfc"]["live"]
+        hub.mark_watched(dev_id)
+        newer, older = JPEG + b"new", JPEG + b"old"
+        for data, seq in ((newer, "20"), (older, "10")):
+            agent.post("/frame", data=data,
+                       headers={"Content-Type": "image/jpeg", "X-Frame-Seq": seq})
+        assert hub.latest(dev_id)[1] == newer
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
