@@ -78,12 +78,14 @@ def init_sentry() -> None:
         return
     try:
         import sentry_sdk
+        from scrub import scrub_event
     except ImportError:
         print("DFC_SENTRY_DSN is set but sentry-sdk is not installed "
               "(pip install sentry-sdk).", file=sys.stderr)
         return
     sentry_sdk.init(dsn=dsn, release=os.environ.get("DFC_RELEASE") or None,
-                    send_default_pii=False, traces_sample_rate=0)
+                    send_default_pii=False, traces_sample_rate=0,
+                    before_send=scrub_event)
     sentry_sdk.set_tag("component", "agent")
 
 

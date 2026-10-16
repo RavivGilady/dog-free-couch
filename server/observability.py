@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import sys
 import threading
@@ -21,22 +22,22 @@ import time
 import uuid
 from pathlib import Path
 
-from flask import Flask, g, has_request_context, jsonify, request, session
+from werkzeug.exceptions import HTTPException
+
+from flask import Flask, current_app, g, has_request_context, jsonify, request
+
+from scrub import redact, scrub_event
 
 log = logging.getLogger("dfc")
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
-# Device tokens (dfc_...), bearer credentials, and key=value style secrets.
-_SECRETS = re.compile(
-    r"(dfc_[A-Za-z0-9_-]{8,}"
-    r"|bot\d+:[A-Za-z0-9_-]+"
-    r"|(?i:bearer)\s+[A-Za-z0-9._~+/=-]+"
-    r"|(?i:(?:password|passwd|secret|token|api[_-]?key|bot_token)[\"']?\s*[:=]\s*[\"']?)[^\s\"',}&]+)")
 _LATENCY_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30)
 
 
-def redact(text: str) -> str:
-    return _SECRETS.sub("[redacted]", text)
+_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+# Successful calls on these paths happen every few seconds per camera/viewer.
+_NOISY_PATHS = ("/healthz", "/readyz", "/api/agent/heartbeat", "/api/agent/frame")
+_READY_TTL = 5.0
 
 
 class JsonFormatter(logging.Formatter):
@@ -50,30 +51,22 @@ class JsonFormatter(logging.Formatter):
         }
         if has_request_context():
             out["request_id"] = getattr(g, "request_id", None)
-            out["user_id"] = _user_id()
-            dev = getattr(g, "device", None)
-            if dev is not None:
-                out["device_id"] = dev.id
+            # Cached on g at authentication time: touching ORM objects or the
+            # session from inside a log call can trigger queries and cookies.
+            out["user_id"] = g.get("log_user_id")
+            if g.get("log_device_id") is not None:
+                out["device_id"] = g.log_device_id
         for k, v in getattr(record, "fields", {}).items():
-            out[k] = v
+            out[k] = redact(v) if isinstance(v, str) else v
         if record.exc_info:
             out["exc"] = redact(self.formatException(record.exc_info))
         return json.dumps(out, default=str)
 
 
-def _user_id():
-    dev = getattr(g, "device", None)
-    if dev is not None:
-        return dev.user_id
-    try:
-        return session.get("uid")
-    except Exception:
-        return None
-
-
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(level: str = "INFO", json_logs: bool = True) -> None:
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    handler.setFormatter(JsonFormatter() if json_logs else logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper() if level.upper() in logging._nameToLevel else "INFO")
@@ -98,7 +91,8 @@ class Metrics:
             self.counters[name] = self.counters.get(name, 0) + n
 
     def observe(self, method: str, route: str, status: int, seconds: float) -> None:
-        key = (method, route, f"{status // 100}xx")
+        # Clients can send arbitrary method tokens; keep label cardinality bounded.
+        key = (method if method in _METHODS else "OTHER", route, f"{status // 100}xx")
         with self._lock:
             self.requests[key] = self.requests.get(key, 0) + 1
             h = self.latency.setdefault(route, [0] * (len(_LATENCY_BUCKETS) + 1) + [0.0, 0])
@@ -130,20 +124,21 @@ class Metrics:
 
 
 def metrics() -> Metrics:
-    from flask import current_app
     return current_app.extensions["dfc"]["metrics"]
 
 
 def _gauges(app: Flask) -> dict[str, float]:
-    from .models import Device
+    from sqlalchemy import func
+
+    from .models import ONLINE_WINDOW, Device
     ext = app.extensions["dfc"]
     cfg = app.config["DFC"]
     out: dict[str, float] = {}
     try:
         now = time.time()
-        devices = ext["db"].query(Device.last_seen).all()
-        out["agents_total"] = len(devices)
-        out["agents_online"] = sum(1 for (t,) in devices if t and now - t < 20)
+        q = ext["db"].query(func.count(Device.id))
+        out["agents_total"] = q.scalar()
+        out["agents_online"] = q.filter(Device.last_seen > now - ONLINE_WINDOW).scalar()
         out["db_up"] = 1
     except Exception:
         log.exception("metrics: database query failed")
@@ -157,11 +152,10 @@ def _gauges(app: Flask) -> dict[str, float]:
         out["disk_free_bytes"] = du.free
     except Exception:
         log.exception("metrics: disk usage failed")
-    # A backup job (see the production-database work) touches this file on
-    # success; the gauge is simply absent until one has ever run.
+    # A backup job touches this file on success. 0 means "never", so the
+    # BackupStale alert fires instead of staying silent on an absent series.
     marker = Path(cfg.DATA_DIR) / "backup_last_success"
-    if marker.exists():
-        out["backup_last_success_timestamp"] = int(marker.stat().st_mtime)
+    out["backup_last_success_timestamp"] = int(marker.stat().st_mtime) if marker.exists() else 0
     return out
 
 
@@ -178,19 +172,8 @@ def init_sentry(dsn: str, release: str, component: str) -> bool:
         log.warning("SENTRY_DSN is set but sentry-sdk is not installed")
         return False
 
-    def scrub(event, _hint):
-        req = event.get("request") or {}
-        req.pop("cookies", None)
-        req.pop("data", None)
-        headers = req.get("headers")
-        if isinstance(headers, dict):
-            for h in list(headers):
-                if h.lower() in ("authorization", "cookie", "x-csrf-token"):
-                    headers[h] = "[redacted]"
-        return event
-
     sentry_sdk.init(dsn=dsn, release=release or None, send_default_pii=False,
-                    before_send=scrub, traces_sample_rate=0)
+                    before_send=scrub_event, traces_sample_rate=0)
     sentry_sdk.set_tag("component", component)
     return True
 
@@ -202,8 +185,7 @@ def init_sentry(dsn: str, release: str, component: str) -> bool:
 def init_app(app: Flask) -> None:
     cfg = app.config["DFC"]
     app.extensions["dfc"]["metrics"] = Metrics()
-    if cfg.LOG_JSON:
-        setup_logging(cfg.LOG_LEVEL)
+    setup_logging(cfg.LOG_LEVEL, cfg.LOG_JSON)
     init_sentry(cfg.SENTRY_DSN, cfg.RELEASE, "server")
 
     @app.before_request
@@ -221,7 +203,7 @@ def init_app(app: Flask) -> None:
             route = request.url_rule.rule if request.url_rule else "unmatched"
             app.extensions["dfc"]["metrics"].observe(request.method, route, resp.status_code, secs)
             level = logging.ERROR if resp.status_code >= 500 else logging.INFO
-            if request.path in ("/healthz", "/readyz"):
+            if resp.status_code < 400 and request.path in _NOISY_PATHS:
                 level = logging.DEBUG
             log.log(level, "request", extra={"fields": {
                 "method": request.method, "path": request.path,
@@ -230,7 +212,6 @@ def init_app(app: Flask) -> None:
 
     @app.errorhandler(Exception)
     def _unhandled(exc):
-        from werkzeug.exceptions import HTTPException
         if isinstance(exc, HTTPException):
             return exc
         log.exception("unhandled exception")
@@ -249,26 +230,34 @@ def init_app(app: Flask) -> None:
         dependency-free, so a flaky database cannot get the app restarted."""
         return jsonify({"ok": True})
 
+    ready_cache = {"at": 0.0, "checks": None}
+
     @app.get("/readyz")
     def readyz():
-        """Readiness: can we actually do our job (database + media store)?"""
+        """Readiness: can we actually do our job (database + media store)?
+        Unauthenticated, so the result is cached for a few seconds."""
         from sqlalchemy import text
-        ext = app.extensions["dfc"]
-        checks = {}
-        try:
-            ext["db"].execute(text("SELECT 1"))
-            checks["database"] = "ok"
-        except Exception as e:
-            log.error("readiness: database check failed: %s", e)
-            checks["database"] = "failed"
-        finally:
-            ext["db"].remove()
-        try:
-            ext["storage"].check()
-            checks["storage"] = "ok"
-        except Exception as e:
-            log.error("readiness: storage check failed: %s", e)
-            checks["storage"] = "failed"
+        now = time.monotonic()
+        if ready_cache["checks"] is None or now - ready_cache["at"] > _READY_TTL:
+            ext = app.extensions["dfc"]
+            checks = {}
+            try:
+                ext["db"].execute(text("SELECT 1"))
+                checks["database"] = "ok"
+            except Exception as e:
+                # Class only: the message can carry the DSN or host.
+                log.error("readiness: database check failed: %s", type(e).__name__)
+                checks["database"] = "failed"
+            finally:
+                ext["db"].remove()
+            try:
+                ext["storage"].check()
+                checks["storage"] = "ok"
+            except Exception as e:
+                log.error("readiness: storage check failed: %s", type(e).__name__)
+                checks["storage"] = "failed"
+            ready_cache.update(at=now, checks=checks)
+        checks = ready_cache["checks"]
         ok = all(v == "ok" for v in checks.values())
         return jsonify({"ok": ok, "checks": checks}), (200 if ok else 503)
 
@@ -277,9 +266,9 @@ def init_app(app: Flask) -> None:
         token = cfg.METRICS_TOKEN
         if not token:
             return jsonify({"error": "not found"}), 404
-        import secrets
         sent = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(sent, f"Bearer {token}"):
+        # Bytes: compare_digest raises TypeError on a non-ASCII str.
+        if not secrets.compare_digest(sent.encode(), f"Bearer {token}".encode()):
             return jsonify({"error": "unauthorized"}), 401
         body = app.extensions["dfc"]["metrics"].render(_gauges(app))
         return body, 200, {"Content-Type": "text/plain; version=0.0.4"}

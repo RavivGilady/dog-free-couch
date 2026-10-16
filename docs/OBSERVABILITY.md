@@ -40,3 +40,15 @@ down, 5xx spike, no agent heartbeats, upload failures, disk > 80%, TLS expiry
 (route to email/Slack/PagerDuty) next to the stack, or load `alerts.yml` into
 Grafana Cloud. For a zero-setup external check, also point UptimeRobot /
 Better Stack at `https://DOMAIN/readyz`.
+
+### Running the monitoring stack safely
+* Prometheus and Alertmanager have no authentication: do not publish their
+  ports on the internet (bind to localhost or keep them on the private network).
+* The `site` job needs a blackbox exporter (`blackbox:9115`, module
+  `https_2xx`) that this repo does not ship; until it runs, `SiteDown` fires
+  via `absent(probe_success{job="site"})` rather than staying silent.
+* Keep the `metrics_token` file mode 0600.
+* `dfc_backup_last_success_timestamp` is `0` until a backup has ever run, so
+  `BackupStale` fires when backups are not set up.
+* `/readyz` is cached for 5 seconds; `LOG_JSON=0` gives plain-text logs (the
+  level still applies).

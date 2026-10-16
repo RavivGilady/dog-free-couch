@@ -34,6 +34,7 @@ def current_user() -> User | None:
     if "user" not in g:
         uid = session.get("uid")
         g.user = db().get(User, uid) if uid else None
+        g.log_user_id = g.user.id if g.user else None
     return g.user
 
 
@@ -70,6 +71,7 @@ def device_required(fn):
         if device is None:
             return error("unknown device token", 401)
         g.device = device
+        g.log_user_id, g.log_device_id = device.user_id, device.id
         return fn(*a, **kw)
     return wrapper
 

@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r server/requirements.txt
 COPY server/ server/
 COPY frontend/ frontend/
 # The built-in sirens (previewed in the dashboard) are generated here.
-COPY alert.py sirens.py ./
+COPY alert.py sirens.py scrub.py ./
 
 RUN useradd --create-home app && mkdir -p /data && chown app /data
 USER app

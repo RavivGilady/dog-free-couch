@@ -2,7 +2,7 @@ groups:
   - name: dog-free-couch
     rules:
       - alert: SiteDown
-        expr: probe_success{job="site"} == 0
+        expr: probe_success{job="site"} == 0 or absent(probe_success{job="site"})
         for: 2m
         labels: {severity: page}
         annotations: {summary: "Site or its database/storage is failing /readyz"}
