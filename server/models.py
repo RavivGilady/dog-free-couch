@@ -119,6 +119,10 @@ class User(Base):
         return tg
 
 
+# Seconds since the last heartbeat before a camera counts as offline.
+ONLINE_WINDOW = 20
+
+
 class Device(Base):
     __tablename__ = "devices"
 
@@ -153,7 +157,7 @@ class Device(Base):
         return json.loads(self.status_json or "{}")
 
     def online(self, now: float | None = None) -> bool:
-        return bool(self.last_seen) and (now or time.time()) - self.last_seen < 20
+        return bool(self.last_seen) and (now or time.time()) - self.last_seen < ONLINE_WINDOW
 
     def to_dict(self) -> dict:
         return {

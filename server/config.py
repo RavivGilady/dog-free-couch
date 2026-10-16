@@ -8,8 +8,8 @@ chosen for local development; production should at least set SECRET_KEY.
 from __future__ import annotations
 
 import os
+import logging
 import secrets
-import sys
 from pathlib import Path
 
 
@@ -64,6 +64,15 @@ class Config:
         self.SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
         self.MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
 
+        # Observability (see observability.py).
+        self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+        self.LOG_JSON = _bool("LOG_JSON", True)
+        self.SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+        # Git SHA / version of this build; tags Sentry events and logs.
+        self.RELEASE = os.environ.get("RELEASE", "")
+        # /metrics is disabled unless this is set; scrapers send it as a bearer token.
+        self.METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
+
         for k, v in overrides.items():
             setattr(self, k, v)
 
@@ -80,6 +89,6 @@ def _dev_secret(data_dir: Path) -> str:
         return p.read_text().strip()
     key = secrets.token_urlsafe(48)
     p.write_text(key)
-    print("[server] SECRET_KEY not set; generated one in "
-          f"{p}. Set SECRET_KEY explicitly in production.", file=sys.stderr)
+    logging.getLogger("dfc").warning(
+        "SECRET_KEY not set; generated one in %s. Set SECRET_KEY explicitly in production.", p)
     return key
