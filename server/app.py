@@ -83,6 +83,10 @@ def create_app(config: Config | None = None, start_background: bool = True) -> F
     _register_auth(app)
     _register_frontend(app)
 
+    if start_background:
+        from . import telegram_bot
+        telegram_bot.start(app)
+
     if start_background and cfg.RETENTION_DAYS > 0:
         threading.Thread(target=_retention_loop, args=(app,), daemon=True,
                          name="retention").start()

@@ -7,6 +7,7 @@ chosen for local development; production should at least set SECRET_KEY.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 import sys
@@ -58,11 +59,22 @@ class Config:
         self.RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "30"))
         self.MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
 
+        # The shared Telegram bot. With a token set, every user can link
+        # their own chat from the dashboard. PUBLIC_URL (this server's
+        # https address) makes Telegram push updates to a webhook; without
+        # it the server polls Telegram instead, which suits a laptop.
+        self.TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        self.PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip()
+        self.TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+
         for k, v in overrides.items():
             setattr(self, k, v)
 
         if not self.SECRET_KEY:
             self.SECRET_KEY = _dev_secret(self.DATA_DIR)
+        if not self.TELEGRAM_WEBHOOK_SECRET:
+            self.TELEGRAM_WEBHOOK_SECRET = hashlib.sha256(
+                ("telegram-webhook:" + self.SECRET_KEY).encode()).hexdigest()
 
 
 def _dev_secret(data_dir: Path) -> str:

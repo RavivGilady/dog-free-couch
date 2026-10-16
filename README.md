@@ -328,6 +328,8 @@ Postgres + S3.
 | `ALLOW_SIGNUP`                              | `1`                         | `0` closes registration once your household has accounts                       |
 | `RETENTION_DAYS`                            | `30`                        | Events and clips older than this are deleted; `0` keeps forever                |
 | `TRUST_PROXY`                               | `0`                         | `1` behind a reverse proxy / PaaS router (real client IPs, https)              |
+| `TELEGRAM_BOT_TOKEN`                        | _(empty)_                   | One shared bot for all users: each links their chat with **Connect Telegram** in Settings |
+| `PUBLIC_URL`                                | _(empty)_                   | This server's https address; Telegram then pushes bot messages to a webhook (without it the server polls) |
 | `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
 | `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |

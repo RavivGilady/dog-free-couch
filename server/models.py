@@ -95,6 +95,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     telegram_json: Mapped[str] = mapped_column(Text, default="{}")
+    # One-time code behind the "Connect Telegram" deep link (see telegram_bot).
+    tg_link_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    tg_link_expires: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     devices: Mapped[list["Device"]] = relationship(back_populates="user",
                                                    cascade="all, delete-orphan")
@@ -239,8 +242,9 @@ def _add_new_columns(engine) -> None:
     """
     from sqlalchemy import inspect, text
 
-    pending = [("devices", "kind",
-                f"VARCHAR(16) NOT NULL DEFAULT '{AGENT_KIND}'")]
+    pending = [("devices", "kind", f"VARCHAR(16) NOT NULL DEFAULT '{AGENT_KIND}'"),
+               ("users", "tg_link_code", "VARCHAR(64)"),
+               ("users", "tg_link_expires", "FLOAT")]
     insp = inspect(engine)
     for table, column, spec in pending:
         if not insp.has_table(table):
