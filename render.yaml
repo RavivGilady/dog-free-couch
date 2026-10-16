@@ -4,7 +4,7 @@ services:
   - type: web
     name: dog-free-couch
     runtime: docker
-    plan: free
+    plan: starter
     healthCheckPath: /
     envVars:
       - key: SECRET_KEY
