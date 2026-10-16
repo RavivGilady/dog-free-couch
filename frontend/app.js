@@ -572,6 +572,18 @@ Station.onChange((st) => {
   bits.push(
     !st.camera_ok ? "no camera" : st.dog_on_couch ? "DOG ON COUCH" : "watching",
   );
+  const loading = st.model_progress != null;
+  if (loading)
+    bits.push(
+      st.model_progress >= 0
+        ? `downloading the model ${Math.round(st.model_progress * 100)}%`
+        : "downloading the model",
+    );
+  const bar = $("#station-progress");
+  bar.classList.toggle("hidden", !loading);
+  bar.classList.toggle("indeterminate", loading && st.model_progress < 0);
+  if (loading && st.model_progress >= 0)
+    bar.firstElementChild.style.width = `${st.model_progress * 100}%`;
   if (st.fps) bits.push(`${st.fps} fps`);
   if (st.dogs_in_frame)
     bits.push(`${st.dogs_in_frame} dog${st.dogs_in_frame > 1 ? "s" : ""}`);

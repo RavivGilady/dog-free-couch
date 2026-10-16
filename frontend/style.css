@@ -713,6 +713,33 @@ input[type="email"] {
 .station-info .sub.bad {
   color: var(--danger);
 }
+.progress {
+  height: 6px;
+  margin-top: 6px;
+  background: rgba(127, 127, 127, 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+/* Size not known yet: a sliding stripe instead of a fill. */
+.progress.indeterminate i {
+  width: 35%;
+  animation: progress-slide 1.1s ease-in-out infinite alternate;
+}
+@keyframes progress-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(185%);
+  }
+}
 @media (max-width: 560px) {
   .station-bar {
     left: 16px;
