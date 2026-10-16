@@ -355,6 +355,21 @@ main {
 }
 
 /* ---------- sound ---------- */
+.tg-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.tg-fallback {
+  font-size: 0.9em;
+}
+.tg-banner span {
+  flex: 1 1 260px;
+}
 .card {
   background: var(--panel);
   border: 1px solid var(--line);

@@ -198,6 +198,7 @@ async function enterApp(me) {
   $("#auth-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
   renderFooter();
+  refreshTelegramBanner();
   await loadDevices();
   loadOnboardingTelegram();
   if (!devices.length) switchTab("devices");
@@ -1305,16 +1306,107 @@ async function loadSettings() {
   }
 
   const tg = await api("/api/me/telegram");
+  showTelegramState(tg);
   $("#tg-enabled").checked = tg.enabled;
   $("#tg-chat").value = tg.chat_id || "";
   $("#tg-photo").checked = tg.send_photo;
   $("#tg-video").checked = tg.send_video;
-  onbTelegram = !!(tg.enabled && tg.bot_token_set && tg.chat_id);
+  onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
   renderOnboarding();
   $("#tg-token-hint").textContent = tg.bot_token_set
     ? `currently ${tg.bot_token_hint}`
     : "not set";
 }
+
+// Shown on every tab until the user links Telegram (or says "Not now").
+async function refreshTelegramBanner() {
+  let dismissed = false;
+  try {
+    dismissed = sessionStorage.getItem("tg-banner-dismissed") === "1";
+  } catch (e) {}
+  try {
+    const tg = await api("/api/me/telegram");
+    $("#tg-banner").classList.toggle(
+      "hidden",
+      dismissed || !tg.shared_bot || tg.connected,
+    );
+  } catch (e) {}
+}
+
+$("#btn-banner-dismiss").addEventListener("click", () => {
+  try {
+    sessionStorage.setItem("tg-banner-dismissed", "1");
+  } catch (e) {}
+  $("#tg-banner").classList.add("hidden");
+});
+
+async function connectTelegram() {
+  try {
+    const { url, app_url } = await api("/api/me/telegram/link", {
+      method: "POST",
+    });
+    // Opening the app by its own protocol keeps this page where it is; a
+    // new tab to t.me would be left stranded once Telegram takes over.
+    $$(".tg-fallback").forEach((a) => {
+      a.href = url;
+      a.classList.remove("hidden");
+    });
+    window.location.href = app_url;
+    // Telegram tells the server, not this page, so watch for the link.
+    for (let i = 0; i < 40; i++) {
+      // Wake early when the user switches back to this tab.
+      await new Promise((r) => {
+        const done = () => {
+          document.removeEventListener("visibilitychange", onShow);
+          clearTimeout(timer);
+          r();
+        };
+        const onShow = () => !document.hidden && done();
+        const timer = setTimeout(done, 3000);
+        document.addEventListener("visibilitychange", onShow);
+      });
+      const tg = await api("/api/me/telegram");
+      if (tg.connected) {
+        $$(".tg-fallback").forEach((a) => a.classList.add("hidden"));
+        window.focus();
+        refreshTelegramBanner();
+        loadOnboardingTelegram();
+        if (activeTab === "settings") loadSettings();
+        toast("Telegram connected");
+        return;
+      }
+    }
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
+
+$("#btn-banner-connect").addEventListener("click", connectTelegram);
+
+function showTelegramState(tg) {
+  $("#tg-shared").classList.toggle("hidden", !tg.shared_bot);
+  $("#tg-own").open = !tg.shared_bot || tg.bot_token_set;
+  $("#tg-status").textContent = tg.connected
+    ? "Connected. Alerts go to your Telegram chat."
+    : "Not connected. Press Connect, then Start in Telegram.";
+  $("#btn-connect-tg").classList.toggle("hidden", tg.connected);
+  $("#btn-disconnect-tg").classList.toggle("hidden", !tg.connected);
+}
+
+$("#btn-connect-tg").addEventListener("click", connectTelegram);
+
+$("#btn-disconnect-tg").addEventListener("click", async () => {
+  try {
+    await api("/api/me/telegram/disconnect", { method: "POST" });
+    try {
+      sessionStorage.removeItem("tg-banner-dismissed");
+    } catch (e) {}
+    refreshTelegramBanner();
+    loadSettings();
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+});
 
 [
   ["al-repeat", "al-repeat-val"],
@@ -1437,7 +1529,7 @@ function setOnb(name, on) {
 async function loadOnboardingTelegram() {
   try {
     const tg = await api("/api/me/telegram");
-    onbTelegram = !!(tg.enabled && tg.bot_token_set && tg.chat_id);
+    onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
   } catch (_) {}
   renderOnboarding();
 }

@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import re
+import secrets
 import sys
 import time
 import wave
@@ -20,7 +21,7 @@ from flask import (Blueprint, Response, abort, current_app, jsonify, request,
                    send_file)
 from sqlalchemy import func
 
-from . import telegram
+from . import telegram, telegram_bot
 from .ext import (current_user, db, error, live, login_required, storage)
 from .models import (AGENT_KIND, BROWSER_KIND, DEVICE_DEFAULTS, DEVICE_KINDS,
                      Device, Event, Sound, hash_token, new_device_token)
@@ -587,10 +588,77 @@ def sound_audio(sound_id):
 # telegram (per user)
 # --------------------------------------------------------------------------
 
+def _shared_token() -> str:
+    return current_app.config["DFC"].TELEGRAM_BOT_TOKEN
+
+
+def _shared_bot_username() -> str:
+    """Looked up once and kept: it never changes for a given token."""
+    ext = current_app.extensions["dfc"]
+    if not ext.get("tg_username"):
+        ext["tg_username"] = telegram.bot_username(_shared_token())
+    return ext["tg_username"]
+
+
+def _telegram_state(user) -> dict:
+    out = user.telegram_public()
+    out["shared_bot"] = bool(_shared_token())
+    out["connected"] = bool(out.get("chat_id"))
+    return out
+
+
 @bp.get("/me/telegram")
 @login_required
 def get_telegram():
-    return jsonify(current_user().telegram_public())
+    return jsonify(_telegram_state(current_user()))
+
+
+@bp.post("/me/telegram/link")
+@login_required
+def link_telegram():
+    """Starts the "Connect Telegram" flow: a one-time code in a t.me link."""
+    if not _shared_token():
+        return error("This server has no shared Telegram bot configured.", 404)
+    username = _shared_bot_username()
+    if not username:
+        return error("Could not reach Telegram. Try again in a moment.", 502)
+    user = current_user()
+    user.tg_link_code = telegram_bot.new_link_code()
+    user.tg_link_expires = time.time() + telegram_bot.LINK_TTL_SEC
+    db().commit()
+    code = user.tg_link_code
+    # app_url opens the installed Telegram app without leaving the dashboard;
+    # url is the web fallback for when no app is installed.
+    return jsonify({"url": f"https://t.me/{username}?start={code}",
+                    "app_url": f"tg://resolve?domain={username}&start={code}",
+                    "expires_in": telegram_bot.LINK_TTL_SEC})
+
+
+@bp.post("/me/telegram/disconnect")
+@login_required
+def disconnect_telegram():
+    user = current_user()
+    tg = user.telegram
+    tg.update(chat_id="", enabled=False)
+    user.telegram = tg
+    user.tg_link_code = None
+    user.tg_link_expires = None
+    db().commit()
+    return jsonify(_telegram_state(user))
+
+
+@bp.post("/telegram/webhook")
+def telegram_webhook():
+    """Telegram pushes bot updates here. The secret header proves it is
+    Telegram; there is no session, so this is deliberately outside login."""
+    cfg = current_app.config["DFC"]
+    sent = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not cfg.TELEGRAM_BOT_TOKEN or not secrets.compare_digest(
+            sent.encode(), cfg.TELEGRAM_WEBHOOK_SECRET.encode()):
+        abort(403)
+    telegram_bot.handle_update(current_app._get_current_object(),
+                               request.get_json(silent=True) or {})
+    return jsonify({"ok": True})
 
 
 @bp.post("/me/telegram")
@@ -612,12 +680,13 @@ def set_telegram():
         tg["bot_token"] = token[:200]
     user.telegram = tg
     db().commit()
-    return jsonify(user.telegram_public())
+    return jsonify(_telegram_state(user))
 
 
 @bp.post("/me/telegram/test")
 @login_required
 def test_telegram():
     tg = current_user().telegram
-    ok, message = telegram.check(tg.get("bot_token", ""), tg.get("chat_id", ""))
+    ok, message = telegram.check(tg.get("bot_token", "") or _shared_token(),
+                                 tg.get("chat_id", ""))
     return jsonify({"ok": ok, "message": message})

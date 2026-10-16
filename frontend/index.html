@@ -56,6 +56,15 @@
         <button class="ghost small" id="btn-logout">Sign out</button>
       </header>
 
+      <div id="tg-banner" class="tg-banner hidden">
+        <span>Get an alert with a photo and clip on Telegram when the dog gets on the couch.</span>
+        <button id="btn-banner-connect" class="small">Connect Telegram</button>
+        <a class="tg-fallback hidden" target="_blank" rel="noopener"
+          >Telegram didn't open? Use the web link</a
+        >
+        <button id="btn-banner-dismiss" class="ghost small">Not now</button>
+      </div>
+
       <main>
         <!-- Setup checklist: shown on Live and Devices until finished or
              dismissed. Built by renderOnboarding() in app.js. -->
@@ -304,23 +313,37 @@
             <h3>Telegram</h3>
             <p class="muted">
               Sends a photo when the dog gets on, and the video clip once it is
-              uploaded, for every camera on your account. The token is stored on
-              the server and never sent back to this page.
+              uploaded, for every camera on your account.
             </p>
+            <div id="tg-shared" class="hidden">
+              <p id="tg-status" class="muted"></p>
+              <div class="row">
+                <button id="btn-connect-tg">Connect Telegram</button>
+                <button id="btn-disconnect-tg" class="secondary hidden">
+                  Disconnect
+                </button>
+              </div>
+              <a class="tg-fallback hidden" target="_blank" rel="noopener"
+                >Telegram didn't open? Use the web link</a
+              >
+            </div>
             <label class="check"
               ><input type="checkbox" id="tg-enabled" /> Enabled</label
             >
-            <label
-              >Bot token <span class="hint" id="tg-token-hint"></span
-            ></label>
-            <input
-              type="password"
-              id="tg-token"
-              placeholder="Leave blank to keep current token"
-              autocomplete="off"
-            />
-            <label>Chat id</label>
-            <input type="text" id="tg-chat" placeholder="123456789" />
+            <details id="tg-own">
+              <summary>Use your own bot instead</summary>
+              <label
+                >Bot token <span class="hint" id="tg-token-hint"></span
+              ></label>
+              <input
+                type="password"
+                id="tg-token"
+                placeholder="Leave blank to keep current token"
+                autocomplete="off"
+              />
+              <label>Chat id</label>
+              <input type="text" id="tg-chat" placeholder="123456789" />
+            </details>
             <label class="check"
               ><input type="checkbox" id="tg-photo" checked /> Send
               snapshot</label
