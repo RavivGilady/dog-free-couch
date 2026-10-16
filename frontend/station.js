@@ -51,6 +51,13 @@ const Station = (() => {
   // 0 = no cap: the live view goes as fast as the camera makes new frames
   // and the previous upload finishes (see liveLoop).
   const LIVE_MAX_FPS = 0;
+  // The live view is a preview, not the recording: a small frame uploads
+  // several times faster than a full-size one, and upload speed is what
+  // limits it. Frames go up a few at a time so the round trip to the server
+  // doesn't set the pace either.
+  const LIVE_MAX_WIDTH = 640;
+  const LIVE_JPEG_QUALITY = 0.5;
+  const LIVE_IN_FLIGHT = 3;
   const MAX_BOXES = 20;
   /* A clip is one MediaRecorder segment, so its pre-roll is however long the
    * segment has been running. Segments are recycled while nothing is
@@ -619,7 +626,7 @@ const Station = (() => {
     if (!shown.width || video.readyState < 2) return;
     const ctx = shown.getContext("2d");
     ctx.drawImage(video, 0, 0, shown.width, shown.height);
-    ctx.drawImage(overlay, 0, 0);
+    ctx.drawImage(overlay, 0, 0, shown.width, shown.height);
   }
 
   function annotate(boxes, zone) {
@@ -721,8 +728,12 @@ const Station = (() => {
       return;
     }
     if (raw.width !== video.videoWidth || raw.height !== video.videoHeight) {
-      raw.width = shown.width = overlay.width = video.videoWidth;
-      raw.height = shown.height = overlay.height = video.videoHeight;
+      raw.width = overlay.width = video.videoWidth;
+      raw.height = overlay.height = video.videoHeight;
+      shown.width = Math.min(LIVE_MAX_WIDTH, video.videoWidth);
+      shown.height = Math.round(
+        (video.videoHeight * shown.width) / video.videoWidth,
+      );
     }
     const w = raw.width;
     const h = raw.height;
@@ -924,32 +935,49 @@ const Station = (() => {
             });
           })
         : sleep(33);
+    let inFlight = 0;
+    let backoffUntil = 0;
+    const send = async (jpeg) => {
+      inFlight++;
+      try {
+        const res = await fetch("/api/agent/frame", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "image/jpeg",
+            // Uploads overlap, so they can land out of order; the server
+            // keeps only the newest.
+            "X-Frame-Seq": String(Math.floor(performance.timeOrigin + performance.now())),
+          },
+          body: jpeg,
+        });
+        if (res.ok && !(await res.json()).live_wanted) liveWanted = false;
+        // The rate the dashboard actually sees, over the last 30 frames.
+        sentAt.push(performance.now());
+        if (sentAt.length > 30) sentAt.shift();
+        if (sentAt.length > 1) {
+          const span = sentAt[sentAt.length - 1] - sentAt[0];
+          status.fps =
+            Math.round(((sentAt.length - 1) / (span / 1000)) * 10) / 10;
+        }
+      } catch (_) {
+        backoffUntil = performance.now() + 1000;
+      } finally {
+        inFlight--;
+      }
+    };
     while (running && gen === generation) {
       const started = performance.now();
       if (liveWanted && shown.width) {
+        if (inFlight >= LIVE_IN_FLIGHT || started < backoffUntil) {
+          await sleep(5);
+          continue;
+        }
         try {
           if (!LIVE_MAX_FPS) await nextVideoFrame();
           compose();
-          const jpeg = await blobOf(shown, 0.6);
-          if (jpeg) {
-            const res = await fetch("/api/agent/frame", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "image/jpeg",
-              },
-              body: jpeg,
-            });
-            if (res.ok && !(await res.json()).live_wanted) liveWanted = false;
-            // The rate the dashboard actually sees, over the last 30 frames.
-            sentAt.push(performance.now());
-            if (sentAt.length > 30) sentAt.shift();
-            if (sentAt.length > 1) {
-              const span = sentAt[sentAt.length - 1] - sentAt[0];
-              status.fps =
-                Math.round(((sentAt.length - 1) / (span / 1000)) * 10) / 10;
-            }
-          }
+          const jpeg = await blobOf(shown, LIVE_JPEG_QUALITY);
+          if (jpeg) send(jpeg);
         } catch (_) {
           await sleep(1000);
         }

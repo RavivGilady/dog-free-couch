@@ -179,7 +179,11 @@ def push_frame():
     watched = hub.is_watched(g.device_id)
     data = request.get_data(cache=False)
     if watched and data.startswith(b"\xff\xd8") and len(data) < 4 * 1024 * 1024:
-        hub.push(g.device_id, data)
+        try:
+            seq = int(request.headers["X-Frame-Seq"])
+        except (KeyError, ValueError):
+            seq = None
+        hub.push(g.device_id, data, seq)
     return jsonify({"live_wanted": watched})
 
 
