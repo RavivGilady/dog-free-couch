@@ -131,3 +131,13 @@ def test_confirmation_links_back_to_the_app_when_public(monkeypatch):
     b = Browser(app, "a@example.com")
     _start(app, 5, f"/start {_code(b.req('post', '/api/me/telegram/link').get_json()['url'])}")
     assert sent[-1][3] == ("Back to Dog Free Couch", "https://dfc.example.com")
+
+
+def test_polling_leaves_an_existing_webhook_alone(monkeypatch):
+    app, _ = _app(monkeypatch)
+    deleted = []
+    monkeypatch.setattr(telegram, "webhook_url", lambda token: "https://prod.example.com/api/telegram/webhook")
+    monkeypatch.setattr(telegram, "delete_webhook", lambda token: deleted.append(token))
+    monkeypatch.setattr(telegram, "get_updates", lambda *a, **k: (_ for _ in ()).throw(AssertionError("polled")))
+    telegram_bot._poll(app)  # returns instead of looping
+    assert deleted == []
