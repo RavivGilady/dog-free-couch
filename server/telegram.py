@@ -111,6 +111,16 @@ def set_webhook(token: str, url: str, secret: str) -> bool:
         return False
 
 
+def webhook_url(token: str) -> str | None:
+    """The webhook Telegram currently pushes to ("" if none), or None if
+    it could not be read."""
+    try:
+        r = requests.get(_API.format(token=token, method="getWebhookInfo"), timeout=10)
+        return r.json().get("result", {}).get("url", "") if r.ok else None
+    except Exception:
+        return None
+
+
 def delete_webhook(token: str) -> None:
     try:
         _post(token, "deleteWebhook", 10)
