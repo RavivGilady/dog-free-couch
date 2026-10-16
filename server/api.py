@@ -22,7 +22,8 @@ from flask import (Blueprint, Response, abort, current_app, jsonify, request,
 from sqlalchemy import func
 
 from . import telegram, telegram_bot
-from .ext import (current_user, db, error, live, login_required, storage)
+from .ext import (current_user, db, error, forget_device_tokens, live,
+                  login_required, storage)
 from .models import (AGENT_KIND, BROWSER_KIND, DEVICE_DEFAULTS, DEVICE_KINDS,
                      Device, Event, Sound, hash_token, new_device_token)
 from .storage import new_key
@@ -175,6 +176,7 @@ def browser_token(device_id):
     token = new_device_token()
     d.token_hash = hash_token(token)
     db().commit()
+    forget_device_tokens(d.id)
     return jsonify({"token": token})
 
 
@@ -200,6 +202,7 @@ def delete_device(device_id):
                 storage().delete(key)
     db().delete(d)
     db().commit()
+    forget_device_tokens(device_id)
     return jsonify({"ok": True})
 
 
@@ -211,6 +214,7 @@ def rotate_token(device_id):
     token = new_device_token()
     d.token_hash = hash_token(token)
     db().commit()
+    forget_device_tokens(d.id)
     cmd, local = _agent_command()
     return jsonify({"token": token, "agent_cmd": cmd,
                     "agent_cmd_local": local})
