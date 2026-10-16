@@ -48,9 +48,9 @@ Or use a browser tab as the camera from **Devices**.
 
 ## Caveats
 
-- The free web service sleeps after ~15 minutes without requests. A running
-  agent or open dashboard keeps it awake; the first request after a sleep
-  takes up to a minute.
-- Run one instance only (the live view relay is in memory); the free plan is
-  one instance anyway.
+- `render.yaml` uses the paid `starter` plan (0.5 CPU, 512 MB, ~$7/month), so
+  the service stays awake 24/7. On the free plan it sleeps after ~15 minutes
+  without requests and the first request after a sleep takes up to a minute;
+  set `plan: free` to go back.
+- Run one instance only (the live view relay is in memory).
 - Neon also pauses idle databases and wakes them on the next query.
