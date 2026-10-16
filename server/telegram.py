@@ -9,6 +9,7 @@ Telegram must never fail an agent's upload.
 """
 from __future__ import annotations
 
+import json
 import logging
 
 import requests
@@ -72,3 +73,54 @@ def check(token: str, chat_id: str) -> tuple:
         return True, f"Sent a test message via @{name}."
     except Exception as e:
         return False, f"Could not reach Telegram: {e}"
+
+
+# --------------------------------------------------------------------------
+# the shared bot: one token owned by the server, many users linked to it
+# --------------------------------------------------------------------------
+
+def send_message(token: str, chat_id, text: str, button: tuple | None = None) -> bool:
+    """`button` is (label, https url): a tap-through under the message."""
+    data = {"chat_id": chat_id, "text": text}
+    if button:
+        data["reply_markup"] = json.dumps(
+            {"inline_keyboard": [[{"text": button[0], "url": button[1]}]]})
+    try:
+        return _post(token, "sendMessage", 10, data=data).ok
+    except Exception as e:
+        log.warning("message failed: %s", e.__class__.__name__)
+        return False
+
+
+def bot_username(token: str) -> str:
+    """The bot's @name, or "" if Telegram rejects the token or is unreachable."""
+    try:
+        r = requests.get(_API.format(token=token, method="getMe"), timeout=10)
+        return r.json().get("result", {}).get("username", "") if r.ok else ""
+    except Exception:
+        return ""
+
+
+def set_webhook(token: str, url: str, secret: str) -> bool:
+    try:
+        r = _post(token, "setWebhook", 10, data={
+            "url": url, "secret_token": secret, "allowed_updates": '["message"]'})
+        return r.ok
+    except Exception as e:
+        log.warning("setWebhook failed: %s", e.__class__.__name__)
+        return False
+
+
+def delete_webhook(token: str) -> None:
+    try:
+        _post(token, "deleteWebhook", 10)
+    except Exception:
+        pass
+
+
+def get_updates(token: str, offset: int, timeout: int = 25) -> list:
+    """Long poll. Raises on failure so the caller can back off."""
+    r = _post(token, "getUpdates", timeout + 10,
+              data={"offset": offset, "timeout": timeout, "allowed_updates": '["message"]'})
+    r.raise_for_status()
+    return r.json().get("result", [])

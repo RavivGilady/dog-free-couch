@@ -14,7 +14,7 @@ import logging
 import re
 import time
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
 import sirens
 
@@ -137,8 +137,8 @@ def upload_snapshot(client_id):
     ev.snapshot_key = key
     db().commit()
 
-    tg = g.device.user.telegram
-    if tg["enabled"] and tg["bot_token"] and tg["chat_id"]:
+    tg = _tg_target(g.device.user)
+    if tg:
         in_background(_notify_photo, ev.id, tg, g.device.name, data if tg["send_photo"] else None)
     return jsonify({"ok": True})
 
@@ -163,8 +163,8 @@ def upload_video(client_id):
     ev.video_key = key
     db().commit()
 
-    tg = g.device.user.telegram
-    if tg["enabled"] and tg["send_video"] and tg["bot_token"] and tg["chat_id"]:
+    tg = _tg_target(g.device.user)
+    if tg and tg["send_video"]:
         in_background(_notify_video, key, tg, g.device.name)
     return jsonify({"ok": True})
 
@@ -194,6 +194,17 @@ def download_sound(sound_id):
 # --------------------------------------------------------------------------
 # telegram side effects (background threads)
 # --------------------------------------------------------------------------
+
+def _tg_target(user) -> dict | None:
+    """The user's Telegram settings with the token to send through (their
+    own bot if they set one, else the server's shared bot), or None when
+    nothing should be sent."""
+    tg = user.telegram
+    tg["bot_token"] = tg["bot_token"] or current_app.config["DFC"].TELEGRAM_BOT_TOKEN
+    if tg["enabled"] and tg["bot_token"] and tg["chat_id"]:
+        return tg
+    return None
+
 
 def _notify_photo(event_id: int, tg: dict, device_name: str, jpeg: bytes | None) -> None:
     ok = telegram.send_photo(tg["bot_token"], tg["chat_id"],
