@@ -364,3 +364,11 @@ def test_alert_rules_only_reference_exported_metrics():
             for name in re.findall(r"\b(dfc_\w+)", rule["expr"]):
                 base = re.sub(r"_(bucket|sum|count)$", "", name)
                 assert base in exported, f"{rule['alert']} uses unknown metric {name}"
+
+
+def test_component_names_the_logger():
+    from server.observability import component
+    assert component("dfc.telegram") == "telegram"
+    assert component("dfc.http") == "http"
+    assert component("dfc") == "app"
+    assert component("sqlalchemy.engine") == "app"

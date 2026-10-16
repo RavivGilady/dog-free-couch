@@ -7,6 +7,12 @@ logged during a request. Every response carries `X-Request-ID`; send one in
 to trace a call end to end, or quote it from a 500 response body to find the
 log line. Tokens, passwords and Telegram bot tokens are redacted.
 
+* Every line has a `component` (`http`, `agent_api`, `telegram`, `telegram_bot`,
+  `retention`, `app`). Render has no log groups and labels every line
+  `type=app`, so filter on the text in the Logs page: `"component": "http"`
+  (or `"component": "telegram"`, etc.); combine with the `level` filter for
+  errors only. Hide the dashboard's polling with a regex that excludes
+  `/api/(devices|stats)`.
 * `LOG_LEVEL` (default `INFO`), `LOG_JSON=0` for plain dev logs.
 * `docker-compose.yml` rotates container logs (10 MB x 5 files each), so they
   cannot fill the disk.

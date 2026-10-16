@@ -29,6 +29,7 @@ from flask import Flask, current_app, g, has_request_context, jsonify, request
 from scrub import redact, scrub_event
 
 log = logging.getLogger("dfc")
+access_log = logging.getLogger("dfc.http")
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 _LATENCY_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30)
@@ -40,6 +41,14 @@ _NOISY_PATHS = ("/healthz", "/readyz", "/api/agent/heartbeat", "/api/agent/frame
 _READY_TTL = 5.0
 
 
+def component(logger_name: str) -> str:
+    """Which part of the app logged this: "dfc.telegram" -> "telegram".
+    Render has no log groups and only labels logs by type/level/instance,
+    so this field is what you filter on there (text: "component": "http").
+    """
+    return logger_name.removeprefix("dfc.") if logger_name.startswith("dfc.") else "app"
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         out = {
@@ -47,6 +56,7 @@ class JsonFormatter(logging.Formatter):
                   + f".{int(record.msecs):03d}Z",
             "level": record.levelname,
             "logger": record.name,
+            "component": component(record.name),
             "msg": redact(record.getMessage()),
         }
         if has_request_context():
@@ -205,7 +215,7 @@ def init_app(app: Flask) -> None:
             level = logging.ERROR if resp.status_code >= 500 else logging.INFO
             if resp.status_code < 400 and request.path in _NOISY_PATHS:
                 level = logging.DEBUG
-            log.log(level, "request", extra={"fields": {
+            access_log.log(level, "request", extra={"fields": {
                 "method": request.method, "path": request.path,
                 "status": resp.status_code, "ms": round(secs * 1000, 1)}})
         return resp
