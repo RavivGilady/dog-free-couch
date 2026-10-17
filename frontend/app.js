@@ -304,9 +304,10 @@ function renderDevices() {
       <span class="dot ${d.online ? "live" : ""}"></span>
       <div>
         <div class="name">${esc(d.name)} <span class="kind">${browser ? "browser" : "agent"}</span></div>
-        <div class="sub">${here ? "Running in this tab" : d.online ? "Online" : "Offline"} &middot; last seen ${fmtAgo(d.last_seen)}</div>
+        <div class="sub">${here ? "Running in this tab" : d.online ? "Online" : "Offline"}${d.paused ? " &middot; Paused" : ""} &middot; last seen ${fmtAgo(d.last_seen)}</div>
       </div>
       <div class="spacer"></div>
+      <button class="small secondary btn-pausedev">${d.paused ? "Resume" : "Pause"}</button>
       <button class="small secondary btn-rename">Rename</button>
       ${actions}
       <button class="small ghost btn-deldev">Delete</button>
@@ -325,6 +326,8 @@ $("#devices-list").addEventListener("click", async (e) => {
       const name = prompt("Camera name", dev.name);
       if (!name) return;
       await api(`/api/devices/${id}`, { method: "PATCH", json: { name } });
+    } else if (e.target.classList.contains("btn-pausedev")) {
+      await api(`/api/devices/${id}/pause`, { json: { paused: !dev.paused } });
     } else if (e.target.classList.contains("btn-rotate")) {
       if (
         !confirm(
@@ -703,7 +706,9 @@ async function pollStatus() {
         ? "Offline"
         : !s.running
           ? "Stopped"
-          : s.dog_on_couch
+          : d.paused
+            ? "Paused"
+            : s.dog_on_couch
             ? "ON COUCH"
             : s.camera_ok
               ? "Watching"
@@ -723,7 +728,13 @@ async function pollStatus() {
     // "Silent" is the honest answer whenever the agent has no mic: clips are
     // still recorded, so this is the only place that difference shows.
     $("#s-audio").textContent = !online ? "—" : s.audio_ok ? "On" : "Silent";
-    $("#stream-badge").classList.toggle("hidden", !(online && s.dog_on_couch));
+    $("#stream-badge").classList.toggle(
+      "hidden",
+      !(online && s.dog_on_couch && !d.paused),
+    );
+    const pauseBtn = $("#btn-pause");
+    pauseBtn.disabled = !d;
+    pauseBtn.textContent = d?.paused ? "Resume camera" : "Pause camera";
 
     if (d && activeTab === "live") {
       // The server ends a stream after ~20s without frames, so open a fresh
@@ -751,6 +762,18 @@ async function pollStatus() {
   } catch (_) {}
 }
 setInterval(pollStatus, 2000);
+
+$("#btn-pause").addEventListener("click", async () => {
+  const d = currentDevice();
+  if (!d) return;
+  try {
+    await api(`/api/devices/${d.id}/pause`, { json: { paused: !d.paused } });
+    toast(d.paused ? "Resuming the camera" : "Camera paused");
+    pollStatus();
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+});
 
 $("#btn-test-sound").addEventListener("click", async () => {
   if (!deviceId) return;

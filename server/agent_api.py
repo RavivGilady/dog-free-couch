@@ -32,7 +32,7 @@ _VIDEO_EXT = {".mp4", ".webm", ".avi"}
 # "fps" is the capture/live rate and "detect_fps" how often detection runs:
 # two numbers now, because the agent no longer ties them together.
 _STATUS_KEYS = ("running", "camera_ok", "audio_ok", "dog_on_couch", "dogs_in_frame",
-                "persons_in_frame", "fps", "detect_fps", "recording",
+                "persons_in_frame", "paused", "fps", "detect_fps", "recording",
                 "last_error", "started_at", "upload_queue", "zone_points")
 
 
@@ -66,6 +66,7 @@ def heartbeat():
     return jsonify({
         "device": {"id": d.id, "name": d.name},
         "settings": settings,
+        "paused": bool(d.paused),
         "active_sound": sound,
         "commands": commands,
         "live_wanted": live().is_watched(d.id),

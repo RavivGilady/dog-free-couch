@@ -98,6 +98,7 @@ const Station = (() => {
   let onChange = () => {};
 
   let status = blankStatus();
+  let paused = false;
 
   function blankStatus() {
     return {
@@ -106,6 +107,7 @@ const Station = (() => {
       dog_on_couch: false,
       dogs_in_frame: 0,
       persons_in_frame: 0,
+      paused: false,
       fps: 0,
       recording: false,
       last_error: null,
@@ -681,7 +683,9 @@ const Station = (() => {
     const h = raw.height;
     raw.getContext("2d").drawImage(video, 0, 0, w, h);
 
-    const preds = await model.detect(raw, MAX_BOXES, CONFIDENCE);
+    // Paused from the dashboard: same live view, but an empty scene, so a
+    // session in progress ends through the tracker like any other.
+    const preds = paused ? [] : await model.detect(raw, MAX_BOXES, CONFIDENCE);
     const zone = settings.zone.points;
     const threshold = settings.zone.overlap_threshold;
 
@@ -848,6 +852,11 @@ const Station = (() => {
     if (!!reply.live_wanted !== liveWanted)
       log(reply.live_wanted ? "someone is watching" : "nobody is watching");
     liveWanted = !!reply.live_wanted;
+    if (!!reply.paused !== paused) {
+      log(reply.paused ? "paused from the dashboard" : "resumed from the dashboard");
+      paused = !!reply.paused;
+      publish({ paused });
+    }
     recorder?.sync();
     for (const cmd of reply.commands || []) {
       log(`command from the dashboard: ${cmd.type}`);

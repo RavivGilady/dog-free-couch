@@ -417,6 +417,30 @@ def test_station_logs_are_written_and_sanitized_in_dev_mode():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_pause_is_shared_and_reaches_the_camera():
+    app, tmp = make_app()
+    try:
+        alice, bob = Browser(app, "alice@x.io"), Browser(app, "bob@x.io")
+        dev, token = alice.add_device()
+        agent = Agent(app, token)
+        assert agent.post("/heartbeat", json={}).get_json()["paused"] is False
+
+        # Any signed-in session of the owner can pause; the flag is the
+        # server's, so a second device sees it too.
+        r = alice.req("post", f"/api/devices/{dev}/pause", json={"paused": True})
+        assert r.get_json()["device"]["paused"] is True
+        assert agent.post("/heartbeat", json={}).get_json()["paused"] is True
+        listed = alice.c.get("/api/devices").get_json()["devices"]
+        assert listed[0]["paused"] is True
+
+        alice.req("post", f"/api/devices/{dev}/pause", json={"paused": False})
+        assert agent.post("/heartbeat", json={}).get_json()["paused"] is False
+
+        assert bob.req("post", f"/api/devices/{dev}/pause", json={"paused": True}).status_code == 404
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_columns_added_after_a_database_exists():
     """A column from a newer version has to reach a data/server.db that was
     created before it existed, or every device read blows up."""

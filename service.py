@@ -72,6 +72,7 @@ class MonitorService:
             "fps": 0.0,         # live view / capture rate
             "detect_fps": 0.0,  # how often detection actually runs
             "recording": False,
+            "paused": False,
             "last_error": None,
             "started_at": None,
             "zone_points": [],
@@ -119,6 +120,7 @@ class MonitorService:
         self._detector = None
         self._camera = None
         self._current_event_id = None
+        self.paused = False
         self._last_sound_time = float("-inf")
 
     # ---------- lifecycle ----------
@@ -165,6 +167,13 @@ class MonitorService:
     def snapshot_now(self):
         with self._frame_cv:
             return None if self._latest_raw is None else self._latest_raw.copy()
+
+    def set_paused(self, paused: bool) -> None:
+        """While paused the camera and live view keep running but nothing is
+        detected; the detector sees an empty scene, so a session in progress
+        closes through the normal debounce instead of being cut off."""
+        self.paused = paused
+        self.status["paused"] = paused
 
     def apply_video_settings(self, v: dict) -> None:
         from collections import deque
@@ -321,7 +330,8 @@ class MonitorService:
                     continue
 
                 t0 = time.time()
-                detections = self._detector.detect(frame, wanted_labels=wanted)
+                detections = ([] if self.paused else
+                              self._detector.detect(frame, wanted_labels=wanted))
 
                 any_on_couch = False
                 best_conf = 0.0
