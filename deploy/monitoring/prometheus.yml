@@ -1,0 +1,26 @@
+# Scrapes the app, and probes the public site (uptime + TLS expiry) through
+# the blackbox exporter. Set DOMAIN and METRICS_TOKEN in .env (see
+# docs/OBSERVABILITY.md).
+global:
+  scrape_interval: 30s
+rule_files:
+  - /etc/prometheus/alerts.yml
+scrape_configs:
+  - job_name: dfc
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["server:8000"]
+  - job_name: site
+    metrics_path: /probe
+    params: {module: [https_2xx]}
+    static_configs:
+      - targets: ["https://DOMAIN/readyz"]   # replace DOMAIN
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

@@ -15,22 +15,26 @@ pushes only while someone is watching the live view.
 from __future__ import annotations
 
 import re
-import sys
+import logging
 import threading
 import time
 from datetime import timedelta
+from html import escape as html_escape
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, Response, jsonify, request, send_from_directory, session
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .config import Config
 from .ext import current_user, db, error, login_required, login_user
 from .live import LiveHub
+from . import observability
 from .models import Event, User, make_session_factory
 from .storage import make_storage
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+log = logging.getLogger("dfc.retention")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Login throttling per source address. In-memory on purpose: one process,
@@ -50,6 +54,11 @@ def create_app(config: Config | None = None, start_background: bool = True) -> F
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=cfg.SECURE_COOKIES,
+        # Don't re-issue the cookie on every request. The dashboard polls every
+        # couple of seconds, and a poll still in flight when you sign out would
+        # otherwise return with a fresh Set-Cookie for the old session and
+        # silently sign you back in.
+        SESSION_REFRESH_EACH_REQUEST=False,
         MAX_CONTENT_LENGTH=cfg.MAX_UPLOAD_MB * 1024 * 1024,
     )
 
@@ -78,6 +87,7 @@ def create_app(config: Config | None = None, start_background: bool = True) -> F
 
     from .agent_api import bp as agent_bp
     from .api import bp as api_bp
+    observability.init_app(app)
     app.register_blueprint(api_bp)
     app.register_blueprint(agent_bp)
     _register_auth(app)
@@ -111,7 +121,8 @@ def _register_auth(app: Flask) -> None:
         # page may show the developer-only extras (see Config.DEV_MODE).
         return {"user": {"id": user.id, "email": user.email},
                 "csrf_token": session.get("csrf"),
-                "dev": app.config["DFC"].DEV_MODE}
+                "dev": app.config["DFC"].DEV_MODE,
+                "support_email": app.config["DFC"].SUPPORT_EMAIL}
 
     @app.get("/api/auth/me")
     def auth_me():
@@ -136,14 +147,22 @@ def _register_auth(app: Flask) -> None:
         if len(password) < 8:
             return error("Pick a password of at least 8 characters.")
         s = db()
-        if s.query(User).filter_by(email=email).first():
+        taken = bool(s.query(User).filter_by(email=email).first())
+        if not taken:
+            user = User(email=email, password_hash=generate_password_hash(password))
+            s.add(user)
+            try:
+                s.commit()
+            except IntegrityError:
+                # Two sign-ups raced past the check above (a double-clicked
+                # button); the unique index caught the second one.
+                s.rollback()
+                taken = True
+        if taken:
             # Counted as a failure so this can't be used to cheaply
             # enumerate which addresses have accounts.
             _fail(ip)
             return error("An account with that email already exists.", 409)
-        user = User(email=email, password_hash=generate_password_hash(password))
-        s.add(user)
-        s.commit()
         login_user(user)
         return jsonify(_me_payload(user)), 201
 
@@ -191,9 +210,45 @@ def _register_frontend(app: Flask) -> None:
     """The dashboard is a static single-page app; serving it from the same
     origin as the API keeps cookies simple and avoids CORS entirely."""
 
+    def _page(name: str):
+        resp = send_from_directory(FRONTEND_DIR, name)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    def _page_with_support(name: str):
+        """Static page with the operator's support address filled in. The
+        placeholder sits in an href, so the whole link is dropped when no
+        address is configured."""
+        html = (FRONTEND_DIR / name).read_text(encoding="utf-8")
+        email = html_escape(app.config["DFC"].SUPPORT_EMAIL, quote=True)
+        if email:
+            html = html.replace("{{SUPPORT_EMAIL}}", email)
+        else:
+            html = re.sub(r"<!--support-->.*?<!--/support-->", "", html, flags=re.S)
+        resp = Response(html, mimetype="text/html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     @app.get("/")
     def index():
-        resp = send_from_directory(FRONTEND_DIR, "index.html")
+        # Visitors get the pitch; people who are already signed in go
+        # straight to their dashboard, as before.
+        if current_user() is not None:
+            return _page("index.html")
+        return _page_with_support("landing.html")
+
+    @app.get("/app")
+    def dashboard():
+        return _page("index.html")
+
+    @app.get("/help")
+    def help_page():
+        return _page_with_support("help.html")
+
+    @app.get("/install.sh")
+    def install_script():
+        resp = send_from_directory(FRONTEND_DIR, "install-agent.sh",
+                                   mimetype="text/x-shellscript")
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
@@ -202,10 +257,6 @@ def _register_frontend(app: Flask) -> None:
         resp = send_from_directory(FRONTEND_DIR, name)
         resp.headers["Cache-Control"] = "no-cache"
         return resp
-
-    @app.get("/healthz")
-    def healthz():
-        return jsonify({"ok": True})
 
 
 # --------------------------------------------------------------------------
@@ -217,8 +268,8 @@ def _retention_loop(app: Flask) -> None:
         try:
             with app.app_context():
                 prune_old_events(app)
-        except Exception as e:
-            print(f"[retention] sweep failed: {e}", file=sys.stderr)
+        except Exception:
+            log.exception("retention sweep failed")
         finally:
             app.extensions["dfc"]["db"].remove()
         time.sleep(3600)

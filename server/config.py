@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import logging
 import secrets
-import sys
 from pathlib import Path
 
 
@@ -29,9 +29,12 @@ class Config:
         # SQLite is fine for a handful of users; point this at Postgres
         # (postgresql+psycopg://...) for anything bigger.
         self.DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{data_dir / 'server.db'}")
-        # Some hosts hand out "postgres://", which SQLAlchemy 2 rejects.
-        if self.DATABASE_URL.startswith("postgres://"):
-            self.DATABASE_URL = "postgresql+psycopg://" + self.DATABASE_URL[len("postgres://"):]
+        # Hosts hand out "postgres://" (rejected by SQLAlchemy 2) or plain
+        # "postgresql://" (which would pick psycopg2; we ship psycopg 3).
+        for prefix in ("postgres://", "postgresql://"):
+            if self.DATABASE_URL.startswith(prefix):
+                self.DATABASE_URL = "postgresql+psycopg://" + self.DATABASE_URL[len(prefix):]
+                break
 
         # "local" keeps media on disk under MEDIA_DIR; "s3" uses any
         # S3-compatible bucket (AWS, Cloudflare R2, Backblaze B2, MinIO).
@@ -57,8 +60,19 @@ class Config:
         self.SECURE_COOKIES = _bool("SECURE_COOKIES", False)
         # Events (and their clips) older than this are deleted. 0 keeps forever.
         self.RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "30"))
+        # Where the help pages and the dashboard's "Contact support" link
+        # send people. Empty hides the link rather than showing a dead one.
+        self.SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "").strip()
         self.MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
 
+        # Observability (see observability.py).
+        self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+        self.LOG_JSON = _bool("LOG_JSON", True)
+        self.SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+        # Git SHA / version of this build; tags Sentry events and logs.
+        self.RELEASE = os.environ.get("RELEASE", "")
+        # /metrics is disabled unless this is set; scrapers send it as a bearer token.
+        self.METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
         # The shared Telegram bot. With a token set, every user can link
         # their own chat from the dashboard. PUBLIC_URL (this server's
         # https address) makes Telegram push updates to a webhook; without
@@ -86,6 +100,6 @@ def _dev_secret(data_dir: Path) -> str:
         return p.read_text().strip()
     key = secrets.token_urlsafe(48)
     p.write_text(key)
-    print("[server] SECRET_KEY not set; generated one in "
-          f"{p}. Set SECRET_KEY explicitly in production.", file=sys.stderr)
+    logging.getLogger("dfc").warning(
+        "SECRET_KEY not set; generated one in %s. Set SECRET_KEY explicitly in production.", p)
     return key

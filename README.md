@@ -12,6 +12,11 @@ via Telegram.
 It's built so the same code runs on your laptop's webcam today and on a
 Raspberry Pi's camera module later -- only one config line changes.
 
+> This README is the developer guide. End users get a landing page at `/`,
+> a guided setup checklist in the dashboard, and a help centre at `/help`
+> (all served by the server; source in `frontend/landing.html` and
+> `frontend/help.html`).
+
 ## 1. Install (on your laptop)
 
 Requires Python 3.9+.
@@ -208,6 +213,20 @@ The dashboard gives you:
 - **Devices** - add, rename and remove cameras; issue a new token; or turn
   the device you are reading the dashboard on into a camera itself.
 
+### One-line agent install (Linux / Raspberry Pi)
+
+The dashboard shows, next to a new camera's token, a command like
+`curl -fsSL https://your-site/install.sh | bash -s -- --server https://your-site --token dfc_...`.
+The server serves `frontend/install-agent.sh`, which installs the system
+packages, clones the agent to `~/dog-free-couch`, builds a venv, fetches the
+model, saves the token and installs a systemd service
+(`dog-free-couch.service`) that starts at boot, restarts on failure and runs
+`git pull` before each start. `--pi` selects `picamera2`; `--no-service`
+skips systemd; `--dry-run` prints the steps without doing anything. The
+script clones `https://github.com/RavivGilady/dog-free-couch.git` unless
+`--repo` says otherwise. Windows and macOS have no installer yet; `/help`
+lists the manual steps.
+
 ### Using a browser as the camera
 
 If the computer or phone you are reading the dashboard on is the one facing
@@ -239,9 +258,10 @@ What is different from the agent, and why:
 - **Clip pre-roll is approximate.** `MediaRecorder` has no rewind, so a clip
   is one whole recording segment, recycled while nothing is happening --
   the lead-in before the alert comes out as up to `pre_roll + 2s` rather
-  than exactly the pre-roll you set. Its clips are webm rather than mp4,
-  and carry no total length, so the player's scrubber only fills in as it
-  buffers. The video itself is fine.
+  than exactly the pre-roll you set. Its clips are mp4 where the browser
+  can record it (Chrome 126+, Safari, recent Edge) and webm otherwise
+  (Firefox); either way they carry no total length, so the player's
+  scrubber only fills in as it buffers. The video itself is fine.
 - **One camera, one tab.** Starting the same camera somewhere else issues a
   new device token and the older tab stops itself on its next heartbeat,
   rather than two tabs fighting over one camera's events and frames. The
@@ -313,6 +333,9 @@ Two things to know while editing:
 Caddy gets a TLS certificate automatically. Data (SQLite db and clips)
 lives in the `couch-data` volume.
 
+**Free, on Render + Neon + Cloudflare R2:** see
+[deploy/RENDER.md](deploy/RENDER.md) -- a `render.yaml` Blueprint, no VM to manage.
+
 **A PaaS** (Render, Railway, Fly.io...): deploy the `Dockerfile` and set
 the environment variables below. These hosts usually wipe the container
 disk on redeploy, so either attach a persistent volume at `/data` or use
@@ -333,6 +356,10 @@ Postgres + S3.
 | `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
 | `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
+| `SUPPORT_EMAIL`                             | empty                       | Address behind the help pages' and dashboard's "Contact support" / "Send feedback" links; empty hides them |
+
+Logging, Sentry, health checks, `/metrics` and alert rules (`LOG_LEVEL`,
+`SENTRY_DSN`, `RELEASE`, `METRICS_TOKEN`): see [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 **Run one server process.** The live view keeps the latest frame of each
 camera in memory, so the image runs a single gunicorn worker with many

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import time
 
@@ -18,10 +19,13 @@ from flask import Blueprint, current_app, g, jsonify, request
 import sirens
 
 from . import telegram
-from .ext import db, device_required, error, in_background, live, storage
+from .ext import (db, device_required, error, frame_device_required,
+                  in_background, live, storage)
+from .observability import metrics
 from .models import Device, Event, Sound
 from .storage import new_key
 
+log = logging.getLogger("dfc.agent_api")
 bp = Blueprint("agent_api", __name__, url_prefix="/api/agent")
 
 _CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -32,8 +36,19 @@ _VIDEO_EXT = {".mp4", ".webm", ".avi"}
 # "fps" is the capture/live rate and "detect_fps" how often detection runs:
 # two numbers now, because the agent no longer ties them together.
 _STATUS_KEYS = ("running", "camera_ok", "audio_ok", "dog_on_couch", "dogs_in_frame",
-                "persons_in_frame", "fps", "detect_fps", "recording",
+                "persons_in_frame", "paused", "fps", "detect_fps", "recording",
                 "last_error", "started_at", "upload_queue", "zone_points")
+
+
+def _save(key, fileobj) -> int:
+    """Store an upload, counting (and logging) failures so a broken media
+    store shows up in metrics rather than only as agents retrying."""
+    try:
+        return storage().save(key, fileobj)
+    except Exception:
+        metrics().inc("upload_failures_total")
+        log.exception("storing upload failed", extra={"fields": {"key": key}})
+        raise
 
 
 def _event(client_id: str) -> Event | None:
@@ -66,9 +81,10 @@ def heartbeat():
     return jsonify({
         "device": {"id": d.id, "name": d.name},
         "settings": settings,
+        "paused": bool(d.paused),
         "active_sound": sound,
         "commands": commands,
-        "live_wanted": live().is_watched(d.id),
+        "live_wanted": live().is_watched(d.id) and not d.paused,
     })
 
 
@@ -86,6 +102,7 @@ def create_event():
                    confidence=body.get("confidence"))
         db().add(ev)
         db().commit()
+        metrics().inc("events_ingested_total")
     return jsonify({"id": ev.id})
 
 
@@ -118,7 +135,7 @@ def upload_snapshot(client_id):
         return jsonify({"ok": True, "duplicate": True})
 
     key = new_key(g.device.user_id, "snapshots", ".jpg")
-    storage().save(key, io.BytesIO(data))
+    _save(key, io.BytesIO(data))
     ev.snapshot_key = key
     db().commit()
 
@@ -144,7 +161,7 @@ def upload_video(client_id):
         return jsonify({"ok": True, "duplicate": True})
 
     key = new_key(g.device.user_id, "videos", ext)
-    ev.video_size = storage().save(key, f.stream)
+    ev.video_size = _save(key, f.stream)
     ev.video_key = key
     db().commit()
 
@@ -155,15 +172,19 @@ def upload_video(client_id):
 
 
 @bp.post("/frame")
-@device_required
+@frame_device_required
 def push_frame():
     """One JPEG of the live view, raw in the body. Dropped unless someone
     is watching, so a stale agent can't keep the server busy."""
     hub = live()
-    watched = hub.is_watched(g.device.id)
+    watched = hub.is_watched(g.device_id)
     data = request.get_data(cache=False)
     if watched and data.startswith(b"\xff\xd8") and len(data) < 4 * 1024 * 1024:
-        hub.push(g.device.id, data)
+        try:
+            seq = int(request.headers["X-Frame-Seq"])
+        except (KeyError, ValueError):
+            seq = None
+        hub.push(g.device_id, data, seq)
     return jsonify({"live_wanted": watched})
 
 

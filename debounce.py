@@ -23,6 +23,20 @@ class CouchSessionTracker:
         self._last_alert_time = float("-inf")
         self.session_start = None
 
+    def reset(self):
+        """Forget the current scene, as when the camera is switched off.
+        Returns the "left" event for a session that was in progress, if any,
+        so the caller can close it instead of leaving it open forever."""
+        event = None
+        if self.state == "ON":
+            now = self._clock()
+            event = {"type": "left", "start": self.session_start, "end": now,
+                     "duration": now - self.session_start}
+        self.state = "OFF"
+        self._pos_streak = self._neg_streak = 0
+        self.session_start = None
+        return event
+
     def update(self, is_on_couch: bool):
         """Feed one frame's reading in. Returns an event dict, or None.
 

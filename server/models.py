@@ -19,7 +19,7 @@ import secrets
 import time
 
 from sqlalchemy import (Boolean, Float, ForeignKey, Integer, String, Text,
-                        UniqueConstraint, create_engine, event)
+                        UniqueConstraint, create_engine, event, false)
 from sqlalchemy.orm import (DeclarativeBase, Mapped, mapped_column,
                             relationship, scoped_session, sessionmaker)
 
@@ -119,6 +119,10 @@ class User(Base):
         return tg
 
 
+# Seconds since the last heartbeat before a camera counts as offline.
+ONLINE_WINDOW = 20
+
+
 class Device(Base):
     __tablename__ = "devices"
 
@@ -135,6 +139,10 @@ class Device(Base):
     # Commands queued from the dashboard ("test_sound"), drained by the
     # agent's next heartbeat.
     commands_json: Mapped[str] = mapped_column(Text, default="[]")
+    # Set from any dashboard, obeyed by the camera on its next heartbeat:
+    # while true it keeps streaming the live view but looks for nothing.
+    paused: Mapped[bool] = mapped_column(Boolean, default=False,
+                                         server_default=false())
 
     user: Mapped[User] = relationship(back_populates="devices")
     events: Mapped[list["Event"]] = relationship(back_populates="device",
@@ -153,7 +161,7 @@ class Device(Base):
         return json.loads(self.status_json or "{}")
 
     def online(self, now: float | None = None) -> bool:
-        return bool(self.last_seen) and (now or time.time()) - self.last_seen < 20
+        return bool(self.last_seen) and (now or time.time()) - self.last_seen < ONLINE_WINDOW
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +171,7 @@ class Device(Base):
             "created_at": self.created_at,
             "last_seen": self.last_seen,
             "online": self.online(),
+            "paused": bool(self.paused),
             "status": self.status,
             "settings": self.settings,
         }
@@ -240,6 +249,7 @@ def _add_new_columns(engine) -> None:
     from sqlalchemy import inspect, text
 
     pending = [("devices", "kind", f"VARCHAR(16) NOT NULL DEFAULT '{AGENT_KIND}'"),
+               ("devices", "paused", "BOOLEAN NOT NULL DEFAULT FALSE"),
                ("users", "tg_link_code", "VARCHAR(64)"),
                ("users", "tg_link_expires", "FLOAT")]
     insp = inspect(engine)

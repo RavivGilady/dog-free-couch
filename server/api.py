@@ -22,7 +22,8 @@ from flask import (Blueprint, Response, abort, current_app, jsonify, request,
 from sqlalchemy import func
 
 from . import telegram, telegram_bot
-from .ext import (current_user, db, error, live, login_required, storage)
+from .ext import (current_user, db, error, forget_device_tokens, live,
+                  login_required, storage)
 from .models import (AGENT_KIND, BROWSER_KIND, DEVICE_DEFAULTS, DEVICE_KINDS,
                      Device, Event, Sound, hash_token, new_device_token)
 from .storage import new_key
@@ -175,6 +176,7 @@ def browser_token(device_id):
     token = new_device_token()
     d.token_hash = hash_token(token)
     db().commit()
+    forget_device_tokens(d.id)
     return jsonify({"token": token})
 
 
@@ -200,6 +202,7 @@ def delete_device(device_id):
                 storage().delete(key)
     db().delete(d)
     db().commit()
+    forget_device_tokens(device_id)
     return jsonify({"ok": True})
 
 
@@ -211,6 +214,7 @@ def rotate_token(device_id):
     token = new_device_token()
     d.token_hash = hash_token(token)
     db().commit()
+    forget_device_tokens(d.id)
     cmd, local = _agent_command()
     return jsonify({"token": token, "agent_cmd": cmd,
                     "agent_cmd_local": local})
@@ -262,6 +266,18 @@ def update_device_settings(device_id):
 
     # Only known keys survive, so a client can't stash arbitrary data here.
     d.settings = {sec: {k: s[sec][k] for k in DEVICE_DEFAULTS[sec]} for sec in DEVICE_DEFAULTS}
+    db().commit()
+    return jsonify({"device": d.to_dict()})
+
+
+@bp.post("/devices/<int:device_id>/pause")
+@login_required
+def pause_device(device_id):
+    """Pause or resume a camera. The flag lives on the server, so it holds
+    whichever device it was pressed from and survives the camera restarting;
+    the camera picks it up on its next heartbeat."""
+    d = _own_device(device_id)
+    d.paused = bool((request.get_json(silent=True) or {}).get("paused"))
     db().commit()
     return jsonify({"device": d.to_dict()})
 
@@ -387,6 +403,9 @@ def _prune_log_reports(directory: Path) -> None:
 @login_required
 def stream(device_id):
     d = _own_device(device_id)
+    if d.paused:
+        # A paused camera shows nothing, whoever asks.
+        return error("camera is paused", 409)
     hub = live()
     hub.mark_watched(d.id)
     dev_id = d.id

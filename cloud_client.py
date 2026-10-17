@@ -244,6 +244,11 @@ class AgentLink:
             print(f"[cloud] couch zone updated from the dashboard "
                   f"({len(z['points'])} corners)")
 
+        paused = bool(reply.get("paused"))
+        if paused != self.monitor.paused:
+            print(f"[cloud] {'paused' if paused else 'resumed'} from the dashboard")
+            self.monitor.set_paused(paused)
+
         if reply.get("live_wanted"):
             self.live_wanted.set()
         else:

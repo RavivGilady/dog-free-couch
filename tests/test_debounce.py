@@ -93,3 +93,16 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     sys.exit(1 if failures else 0)
+
+
+def test_reset_closes_a_session_in_progress_and_forgets_the_scene():
+    from debounce import CouchSessionTracker
+
+    t = CouchSessionTracker(enter_frames=2, exit_frames=3, min_alert_interval_sec=0)
+    assert t.reset() is None  # nothing to close
+    t.update(True)
+    assert t.update(True)["type"] == "entered"
+    left = t.reset()
+    assert left["type"] == "left" and left["duration"] >= 0
+    assert t.state == "OFF" and t.session_start is None
+    assert t.update(True) is None  # streaks start over
