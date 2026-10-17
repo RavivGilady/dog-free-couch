@@ -45,7 +45,7 @@ def page(base_url, browser):
 def signed_in(page):
     """A newly registered user, landed on the dashboard."""
     import uuid
-    page.goto("/")
+    page.goto("/app")
     page.click("#auth-switch a")
     page.fill("#auth-email", f"u{uuid.uuid4().hex[:8]}@example.com")
     page.fill("#auth-password", "password123")
