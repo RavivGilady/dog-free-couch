@@ -56,7 +56,8 @@ def test_settings_slider_updates_label_and_saves(signed_in):
     p.click(".tab[data-tab=settings]")
     p.locator("#al-repeat").fill("9")
     expect(p.locator("#al-repeat-val")).to_have_text("9")
-    p.click("#btn-save-alert")
+    with p.expect_response(lambda r: "/settings" in r.url and r.request.method != "GET"):
+        p.click("#btn-save-alert")
     p.reload()
     p.click(".tab[data-tab=settings]")
     expect(p.locator("#al-repeat")).to_have_value("9")
@@ -181,7 +182,8 @@ def test_video_settings_roundtrip(camera):
     p.click(".tab[data-tab=settings]")
     p.locator("#v-pre").fill("7")
     expect(p.locator("#v-pre-val")).to_have_text("7")
-    p.click("#btn-save-video")
+    with p.expect_response(lambda r: "/settings" in r.url and r.request.method != "GET"):
+        p.click("#btn-save-video")
     p.reload()
     p.click(".tab[data-tab=settings]")
     expect(p.locator("#v-pre")).to_have_value("7")

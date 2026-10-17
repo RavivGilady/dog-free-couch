@@ -253,6 +253,7 @@ $$(".tab").forEach((btn) =>
 /* ================= devices ================= */
 async function loadDevices() {
   const r = await api("/api/devices");
+  const hadDevice = !!currentDevice();
   devices = r.devices;
   let saved = null;
   try {
@@ -264,6 +265,9 @@ async function loadDevices() {
       : (devices[0]?.id ?? null);
   }
   renderDevicePicker();
+  // First camera just arrived while Settings was already open (add-camera
+  // races the tab switch): its form is still the disabled "add a camera" one.
+  if (!hadDevice && currentDevice() && activeTab === "settings") loadSettings();
 }
 
 function renderDevicePicker() {
