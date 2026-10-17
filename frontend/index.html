@@ -243,125 +243,197 @@
 
         <!-- ================= SETTINGS ================= -->
         <section id="tab-settings" class="panel">
-          <h2>Settings</h2>
-
-          <div class="card">
-            <h3>Alarm <span class="hint" id="al-device"></span></h3>
-            <label class="check"
-              ><input type="checkbox" id="al-play" checked /><span
-                id="al-play-label"
-              >
-                Play sound on the camera computer</span
-              ></label
-            >
-            <label
-              >Repeat every <b id="al-repeat-val">3</b>s while the dog is on the
-              couch <span class="hint">(0 = once per session)</span></label
-            >
-            <input
-              type="range"
-              id="al-repeat"
-              min="0"
-              max="30"
-              step="1"
-              value="3"
-            />
-            <button id="btn-save-alert">Save</button>
-          </div>
-
-          <div class="card">
-            <h3>Video clips <span class="hint" id="v-device"></span></h3>
-            <label class="check"
-              ><input type="checkbox" id="v-enabled" checked /> Record a clip
-              for each alert</label
-            >
-            <label
-              >Pre-roll <b id="v-pre-val">4</b>s
-              <span class="hint"
-                >(seconds kept from before the alert, so you see the jump)</span
-              ></label
-            >
-            <input
-              type="range"
-              id="v-pre"
-              min="0"
-              max="15"
-              step="1"
-              value="4"
-            />
-            <label>Post-roll <b id="v-post-val">3</b>s</label>
-            <input
-              type="range"
-              id="v-post"
-              min="0"
-              max="15"
-              step="1"
-              value="3"
-            />
-            <label>Max clip length <b id="v-max-val">60</b>s</label>
-            <input
-              type="range"
-              id="v-max"
-              min="10"
-              max="300"
-              step="10"
-              value="60"
-            />
-            <button id="btn-save-video">Save</button>
-          </div>
-
-          <div class="card">
-            <h3>Telegram</h3>
+          <header class="page-head">
+            <h2>Settings</h2>
             <p class="muted">
-              Sends a photo when the dog gets on, and the video clip once it is
-              uploaded, for every camera on your account.
+              Tune the alarm, the clips, your alerts and your account.
             </p>
-            <div id="tg-shared" class="hidden">
-              <p id="tg-status" class="muted"></p>
-              <div class="row">
-                <button id="btn-connect-tg">Connect Telegram</button>
-                <button id="btn-disconnect-tg" class="secondary hidden">
-                  Disconnect
+          </header>
+
+          <div class="settings-grid">
+            <div class="card scard">
+              <div class="scard-head">
+                <span class="sicon" aria-hidden="true">&#128276;</span>
+                <div>
+                  <h3>Alarm</h3>
+                  <span class="hint" id="al-device"></span>
+                </div>
+              </div>
+              <label class="switch"
+                ><input type="checkbox" id="al-play" checked /><i
+                  class="track"
+                ></i
+                ><span id="al-play-label"
+                  >Play sound on the camera computer</span
+                ></label
+              >
+              <div class="slider-field">
+                <div class="slider-top">
+                  <span
+                    >Repeat every
+                    <span class="hint">(0 = once per session)</span></span
+                  >
+                  <b class="chip"><span id="al-repeat-val">3</span>s</b>
+                </div>
+                <input
+                  type="range"
+                  id="al-repeat"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value="3"
+                />
+              </div>
+              <div class="scard-foot">
+                <button id="btn-save-alert">Save</button>
+              </div>
+            </div>
+
+            <div class="card scard">
+              <div class="scard-head">
+                <span class="sicon" aria-hidden="true">&#127916;</span>
+                <div>
+                  <h3>Video clips</h3>
+                  <span class="hint" id="v-device"></span>
+                </div>
+              </div>
+              <label class="switch"
+                ><input type="checkbox" id="v-enabled" checked /><i
+                  class="track"
+                ></i
+                ><span>Record a clip for each alert</span></label
+              >
+              <div class="slider-field">
+                <div class="slider-top">
+                  <span
+                    >Pre-roll
+                    <span class="hint">(kept from before the alert)</span></span
+                  >
+                  <b class="chip"><span id="v-pre-val">4</span>s</b>
+                </div>
+                <input
+                  type="range"
+                  id="v-pre"
+                  min="0"
+                  max="15"
+                  step="1"
+                  value="4"
+                />
+              </div>
+              <div class="slider-field">
+                <div class="slider-top">
+                  <span>Post-roll</span>
+                  <b class="chip"><span id="v-post-val">3</span>s</b>
+                </div>
+                <input
+                  type="range"
+                  id="v-post"
+                  min="0"
+                  max="15"
+                  step="1"
+                  value="3"
+                />
+              </div>
+              <div class="slider-field">
+                <div class="slider-top">
+                  <span>Max clip length</span>
+                  <b class="chip"><span id="v-max-val">60</span>s</b>
+                </div>
+                <input
+                  type="range"
+                  id="v-max"
+                  min="10"
+                  max="300"
+                  step="10"
+                  value="60"
+                />
+              </div>
+              <div class="scard-foot">
+                <button id="btn-save-video">Save</button>
+              </div>
+            </div>
+
+            <div class="card scard">
+              <div class="scard-head">
+                <span class="sicon sicon-tg" aria-hidden="true"
+                  ><svg
+                    viewBox="0 0 24 24"
+                    width="22"
+                    height="22"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M21.9 4.3 18.6 19.6c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.4 13 1.7 11.5c-1-.3-1-1 .2-1.5L20.3 2.9c.9-.3 1.6.2 1.6 1.4z"
+                    /></svg
+                ></span>
+                <div>
+                  <h3>Telegram</h3>
+                  <span class="hint"
+                    >Photo when the dog gets on, then the clip once uploaded
+                    &mdash; for every camera on your account.</span
+                  >
+                </div>
+              </div>
+              <div id="tg-shared" class="hidden">
+                <p id="tg-status" class="muted"></p>
+                <div class="row">
+                  <button id="btn-connect-tg">Connect Telegram</button>
+                  <button id="btn-disconnect-tg" class="secondary hidden">
+                    Disconnect
+                  </button>
+                </div>
+                <a class="tg-fallback hidden" target="_blank" rel="noopener"
+                  >Telegram didn't open? Use the web link</a
+                >
+              </div>
+              <label class="switch"
+                ><input type="checkbox" id="tg-enabled" /><i class="track"></i
+                ><span>Enabled</span></label
+              >
+              <label class="switch"
+                ><input type="checkbox" id="tg-photo" checked /><i
+                  class="track"
+                ></i
+                ><span>Send snapshot</span></label
+              >
+              <label class="switch"
+                ><input type="checkbox" id="tg-video" checked /><i
+                  class="track"
+                ></i
+                ><span>Send video clip</span></label
+              >
+              <div class="scard-foot row">
+                <button id="btn-save-tg">Save</button>
+                <button id="btn-test-tg" class="secondary">
+                  Test connection
                 </button>
               </div>
-              <a class="tg-fallback hidden" target="_blank" rel="noopener"
-                >Telegram didn't open? Use the web link</a
-              >
+              <div id="tg-result" class="result hidden"></div>
             </div>
-            <label class="check"
-              ><input type="checkbox" id="tg-enabled" /> Enabled</label
-            >
-            <label class="check"
-              ><input type="checkbox" id="tg-photo" checked /> Send
-              snapshot</label
-            >
-            <label class="check"
-              ><input type="checkbox" id="tg-video" checked /> Send video
-              clip</label
-            >
-            <div class="row">
-              <button id="btn-save-tg">Save</button>
-              <button id="btn-test-tg" class="secondary">
-                Test connection
-              </button>
-            </div>
-            <div id="tg-result" class="result hidden"></div>
-          </div>
 
-          <div class="card">
-            <h3>Password</h3>
-            <label>Current password</label>
-            <input
-              type="password"
-              id="pw-current"
-              autocomplete="current-password"
-            />
-            <label
-              >New password <span class="hint">(8+ characters)</span></label
-            >
-            <input type="password" id="pw-new" autocomplete="new-password" />
-            <button id="btn-save-pw">Change password</button>
-            <div id="pw-result" class="result hidden"></div>
+            <div class="card scard">
+              <div class="scard-head">
+                <span class="sicon" aria-hidden="true">&#128273;</span>
+                <div>
+                  <h3>Password</h3>
+                  <span class="hint">Use at least 8 characters.</span>
+                </div>
+              </div>
+              <label>Current password</label>
+              <input
+                type="password"
+                id="pw-current"
+                autocomplete="current-password"
+              />
+              <label
+                >New password <span class="hint">(8+ characters)</span></label
+              >
+              <input type="password" id="pw-new" autocomplete="new-password" />
+              <div class="scard-foot">
+                <button id="btn-save-pw">Change password</button>
+              </div>
+              <div id="pw-result" class="result hidden"></div>
+            </div>
           </div>
         </section>
 

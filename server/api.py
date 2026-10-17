@@ -686,6 +686,7 @@ def set_telegram():
     user = current_user()
     body = request.get_json(silent=True) or {}
     tg = user.telegram
+    # chat_id is only ever set by the Connect flow, never by the browser.
     tg.update({
         "enabled": bool(body.get("enabled")),
         "send_photo": bool(body.get("send_photo", True)),
