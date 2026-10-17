@@ -498,7 +498,12 @@ const Station = (() => {
     // is here to avoid. The video-only strings stay as the fallback for a
     // station whose mic was refused, or a browser that won't do opus.
     const hasAudio = mediaStream.getAudioTracks().length > 0;
+    // MP4 comes first because Telegram only plays H.264 MP4 inline; a webm
+    // arrives as a file attachment. Only Chrome 126+, Safari and recent Edge
+    // can record it, so webm stays as the fallback (Firefox, older browsers).
     const mime = [
+      ...(hasAudio ? ['video/mp4;codecs="avc1,mp4a.40.2"'] : []),
+      "video/mp4;codecs=avc1",
       ...(hasAudio
         ? [
             'video/webm;codecs="vp9,opus"',
