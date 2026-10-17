@@ -3,7 +3,7 @@
  * Auth is a session cookie; every state-changing request also carries the
  * CSRF token handed out by /api/auth/me. Everything shown is scoped to the
  * signed-in account server-side; the device picker only chooses which of
- * the user's cameras the Live, Sound and Settings tabs act on.
+ * the user's cameras the Live and Settings tabs act on.
  *
  * The one non-obvious piece is audio: MediaRecorder gives webm/opus, which
  * the agent's winsound/aplay cannot play, so the recording is decoded with
@@ -238,8 +238,10 @@ function switchTab(name) {
     renderZoneBox();
   } else stopStream();
   if (name === "events") loadEvents(true);
-  if (name === "sound") loadSounds();
-  if (name === "settings") loadSettings();
+  if (name === "settings") {
+    loadSettings();
+    loadSounds();
+  }
   if (name === "devices") {
     renderDevices();
     renderStationCard();

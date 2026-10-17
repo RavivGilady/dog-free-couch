@@ -38,7 +38,7 @@ def test_add_camera_shows_token_and_picker(signed_in):
     assert p.js_errors == []
 
 
-@pytest.mark.parametrize("tab", ["live", "events", "sound", "settings", "devices"])
+@pytest.mark.parametrize("tab", ["live", "events", "settings", "devices"])
 def test_every_tab_opens_without_errors(signed_in, tab):
     p = signed_in
     p.fill("#new-device-name", "Cam")
@@ -169,9 +169,9 @@ def test_live_tab_without_cameras_prompts_to_add_one(signed_in):
     expect(signed_in.locator("#stream-empty")).to_contain_text("Add a camera")
 
 
-def test_sound_tab_lists_builtin_sounds(camera):
+def test_settings_lists_builtin_sounds(camera):
     p = camera.page
-    p.click(".tab[data-tab=sound]")
+    p.click(".tab[data-tab=settings]")
     expect(p.locator("#sounds-list")).to_be_visible()
     expect(p.locator("#btn-rec")).to_be_visible()
     expect(p.locator("#rec-preview")).to_be_hidden()
