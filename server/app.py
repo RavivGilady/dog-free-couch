@@ -54,6 +54,11 @@ def create_app(config: Config | None = None, start_background: bool = True) -> F
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=cfg.SECURE_COOKIES,
+        # Don't re-issue the cookie on every request. The dashboard polls every
+        # couple of seconds, and a poll still in flight when you sign out would
+        # otherwise return with a fresh Set-Cookie for the old session and
+        # silently sign you back in.
+        SESSION_REFRESH_EACH_REQUEST=False,
         MAX_CONTENT_LENGTH=cfg.MAX_UPLOAD_MB * 1024 * 1024,
     )
 
