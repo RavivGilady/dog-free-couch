@@ -258,9 +258,10 @@ What is different from the agent, and why:
 - **Clip pre-roll is approximate.** `MediaRecorder` has no rewind, so a clip
   is one whole recording segment, recycled while nothing is happening --
   the lead-in before the alert comes out as up to `pre_roll + 2s` rather
-  than exactly the pre-roll you set. Its clips are webm rather than mp4,
-  and carry no total length, so the player's scrubber only fills in as it
-  buffers. The video itself is fine.
+  than exactly the pre-roll you set. Its clips are mp4 where the browser
+  can record it (Chrome 126+, Safari, recent Edge) and webm otherwise
+  (Firefox); either way they carry no total length, so the player's
+  scrubber only fills in as it buffers. The video itself is fine.
 - **One camera, one tab.** Starting the same camera somewhere else issues a
   new device token and the older tab stops itself on its next heartbeat,
   rather than two tabs fighting over one camera's events and frames. The
