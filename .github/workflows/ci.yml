@@ -23,7 +23,7 @@ jobs:
             server/requirements.txt
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r server/requirements.txt pytest
+          pip install -r requirements.txt -r server/requirements.txt pytest pytest-playwright
           # The runner has no libGL; swap in the headless OpenCV build.
           pip uninstall -y opencv-python
           # Same <5 cap as requirements.txt: OpenCV 5 dropped the Caffe loader
@@ -38,6 +38,8 @@ jobs:
       - name: Download detector model
         if: steps.model.outputs.cache-hit != 'true'
         run: python download_model.py
+      - name: Install browser for dashboard tests
+        run: playwright install --with-deps chromium
       - name: Run tests
         run: python -m pytest -q
 
