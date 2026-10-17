@@ -515,14 +515,6 @@ python -m pytest tests
 
 - MobileNet-SSD is trained on the Pascal VOC dataset (20 everyday object
   classes) -- it recognizes "dog" well across breeds and sizes, but it's
-The dashboard also has browser tests (`tests/browser`) that drive the real
-frontend in headless Chromium against a throwaway server. They are skipped
-unless Playwright is installed:
-
-```bash
-pip install pytest-playwright && playwright install chromium
-```
-
   a 2017-era lightweight model, not state-of-the-art. If you get
   consistent misses with a particular lighting setup or a very small/dark
   dog, lowering `model.confidence_threshold` slightly (e.g. to 0.4) often

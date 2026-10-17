@@ -23,12 +23,10 @@ jobs:
             server/requirements.txt
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r server/requirements.txt pytest pytest-playwright
+          pip install -r requirements.txt -r server/requirements.txt pytest
           # The runner has no libGL; swap in the headless OpenCV build.
           pip uninstall -y opencv-python
           pip install opencv-python-headless
-      - name: Install browser for dashboard tests
-        run: playwright install --with-deps chromium
       - name: Run tests
         run: python -m pytest -q
 
