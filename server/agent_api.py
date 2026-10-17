@@ -69,7 +69,7 @@ def heartbeat():
         "paused": bool(d.paused),
         "active_sound": sound,
         "commands": commands,
-        "live_wanted": live().is_watched(d.id),
+        "live_wanted": live().is_watched(d.id) and not d.paused,
     })
 
 
@@ -161,7 +161,7 @@ def push_frame():
     """One JPEG of the live view, raw in the body. Dropped unless someone
     is watching, so a stale agent can't keep the server busy."""
     hub = live()
-    watched = hub.is_watched(g.device.id)
+    watched = hub.is_watched(g.device.id) and not g.device.paused
     data = request.get_data(cache=False)
     if watched and data.startswith(b"\xff\xd8") and len(data) < 4 * 1024 * 1024:
         hub.push(g.device.id, data)

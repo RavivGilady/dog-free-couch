@@ -398,6 +398,9 @@ def _prune_log_reports(directory: Path) -> None:
 @login_required
 def stream(device_id):
     d = _own_device(device_id)
+    if d.paused:
+        # A paused camera shows nothing, whoever asks.
+        return error("camera is paused", 409)
     hub = live()
     hub.mark_watched(d.id)
     dev_id = d.id

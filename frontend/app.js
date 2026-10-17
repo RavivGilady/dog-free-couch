@@ -615,6 +615,13 @@ function startStream(force = false) {
     empty.classList.remove("hidden");
     return;
   }
+  // A paused camera shows nothing: no request is made, and the server
+  // would not send frames anyway.
+  if (currentDevice()?.paused) {
+    stopStream();
+    img.classList.add("hidden");
+    return;
+  }
   const src = `/api/devices/${deviceId}/stream.mjpg`;
   // The cache buster matters: without it a reconnect can be served from the
   // dead connection's cache entry and never produce a new frame.
@@ -683,6 +690,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 let wasOnline = null;
+let wasPaused = false;
 async function pollStatus() {
   if ($("#app-view").classList.contains("hidden")) return;
   try {
@@ -741,16 +749,22 @@ async function pollStatus() {
       // one when the camera comes back -- unless the page is hidden, where
       // the feed is deliberately torn down until the user returns.
       if (online && wasOnline === false && !document.hidden) startStream(true);
+      // Coming back from a pause, the stream has to be opened afresh.
+      if (online && wasPaused && !d.paused && !document.hidden) startStream(true);
       const empty = $("#stream-empty");
-      empty.textContent =
-        d.kind === "browser"
+      empty.textContent = d.paused
+        ? `${d.name} is paused. Resume it to see the camera.`
+        : d.kind === "browser"
           ? `${d.name} is offline. Open the dashboard on that device and start its camera.`
           : `${d.name} is offline. Start the agent on its computer.`;
-      empty.classList.toggle("hidden", online);
-      $("#stream").classList.toggle("hidden", !online);
+      const showVideo = online && !d.paused;
+      if (d.paused) stopStream();
+      empty.classList.toggle("hidden", showVideo);
+      $("#stream").classList.toggle("hidden", !showVideo);
     }
 
     wasOnline = d ? online : null;
+    wasPaused = !!d?.paused;
 
     const err = $("#s-error");
     if (online && s.last_error) {

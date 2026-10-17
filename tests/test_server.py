@@ -433,6 +433,11 @@ def test_pause_is_shared_and_reaches_the_camera():
         listed = alice.c.get("/api/devices").get_json()["devices"]
         assert listed[0]["paused"] is True
 
+        # Paused means no picture at all: nothing is relayed or streamed.
+        assert alice.c.get(f"/api/devices/{dev}/stream.mjpg").status_code == 409
+        assert agent.post("/frame", data=JPEG, headers={"Content-Type": "image/jpeg"}
+                          ).get_json()["live_wanted"] is False
+
         alice.req("post", f"/api/devices/{dev}/pause", json={"paused": False})
         assert agent.post("/heartbeat", json={}).get_json()["paused"] is False
 
