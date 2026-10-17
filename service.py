@@ -121,6 +121,7 @@ class MonitorService:
         self._camera = None
         self._current_event_id = None
         self.paused = False
+        self._mic_open = False
         self._last_sound_time = float("-inf")
 
     # ---------- lifecycle ----------
@@ -169,11 +170,48 @@ class MonitorService:
             return None if self._latest_raw is None else self._latest_raw.copy()
 
     def set_paused(self, paused: bool) -> None:
-        """While paused the camera and live view keep running but nothing is
-        detected; the detector sees an empty scene, so a session in progress
-        closes through the normal debounce instead of being cut off."""
+        """Paused means off: the capture loop lets go of the camera and mic
+        (so the camera light goes out) and takes them back on resume. The
+        agent itself stays up and keeps its heartbeat, which is how a resume
+        from the dashboard reaches it."""
         self.paused = paused
         self.status["paused"] = paused
+
+    def _suspend(self) -> None:
+        """Release the camera and mic, closing any session in progress."""
+        if self._camera is None:
+            return
+        left = self.tracker.reset()
+        if left:
+            self._handle_event(left, None, 0.0)
+        self.recorder.finish_now()
+        self._camera.release()
+        self._camera = None
+        if self.mic and self._mic_open:
+            self.mic.stop()
+            self._mic_open = False
+        self._boxes = []
+        self.status.update({"camera_ok": False, "audio_ok": False, "fps": 0.0,
+                            "detect_fps": 0.0, "recording": False,
+                            "dog_on_couch": False, "dogs_in_frame": 0,
+                            "persons_in_frame": 0})
+        print("[service] paused: camera released")
+
+    def _resume(self) -> bool:
+        try:
+            self._camera = get_camera(self.config)
+        except Exception as e:
+            self.status["last_error"] = str(e)
+            print(f"[service] could not reopen the camera: {e}", file=sys.stderr)
+            return False
+        if self.mic:
+            self._mic_open = self.mic.start()
+            if not self._mic_open:
+                self.recorder.mic = self.mic = None
+        self.status.update({"camera_ok": True, "audio_ok": bool(self.mic),
+                            "last_error": None})
+        print("[service] resumed: camera reopened")
+        return True
 
     def apply_video_settings(self, v: dict) -> None:
         from collections import deque
@@ -239,7 +277,8 @@ class MonitorService:
 
         # Sound is a bonus, not a precondition: a mic that won't open is
         # reported in the status and the clips are written silent.
-        if self.mic and not self.mic.start():
+        self._mic_open = bool(self.mic) and self.mic.start()
+        if self.mic and not self._mic_open:
             self.recorder.mic = self.mic = None
         self.status["audio_ok"] = bool(self.mic)
 
@@ -256,6 +295,13 @@ class MonitorService:
 
         try:
             while not self._stop.is_set():
+                if self.paused:
+                    self._suspend()
+                    self._stop.wait(0.25)
+                    continue
+                if self._camera is None and not self._resume():
+                    self._stop.wait(2.0)
+                    continue
                 t0 = time.time()
                 frame = self._camera.read()
                 if frame is None:
@@ -307,7 +353,7 @@ class MonitorService:
             self.recorder.finish_now()
             if self._camera:
                 self._camera.release()
-            if self.mic:
+            if self.mic and self._mic_open:
                 self.mic.stop()
             self.status["audio_ok"] = False
             self.status["running"] = False
@@ -330,8 +376,7 @@ class MonitorService:
                     continue
 
                 t0 = time.time()
-                detections = ([] if self.paused else
-                              self._detector.detect(frame, wanted_labels=wanted))
+                detections = self._detector.detect(frame, wanted_labels=wanted)
 
                 any_on_couch = False
                 best_conf = 0.0

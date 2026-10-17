@@ -99,6 +99,8 @@ const Station = (() => {
 
   let status = blankStatus();
   let paused = false;
+  let constraints = null; // what start() asked the browser for, to reopen with
+  let switching = false; // a pause or resume is in flight
 
   function blankStatus() {
     return {
@@ -665,6 +667,9 @@ const Station = (() => {
   }
 
   async function detectOnce() {
+    // Paused: the camera is released, so there is nothing to look at (and
+    // nothing to mistake for a lost feed).
+    if (paused || !stream) return;
     if (!video.videoWidth || video.readyState < 2) {
       // A paused or still-starting video is not a lost camera; a stream that
       // ended (webcam unplugged, another app took it) is.
@@ -683,9 +688,7 @@ const Station = (() => {
     const h = raw.height;
     raw.getContext("2d").drawImage(video, 0, 0, w, h);
 
-    // Paused from the dashboard: same live view, but an empty scene, so a
-    // session in progress ends through the tracker like any other.
-    const preds = paused ? [] : await model.detect(raw, MAX_BOXES, CONFIDENCE);
+    const preds = await model.detect(raw, MAX_BOXES, CONFIDENCE);
     const zone = settings.zone.points;
     const threshold = settings.zone.overlap_threshold;
 
@@ -857,10 +860,78 @@ const Station = (() => {
       paused = !!reply.paused;
       publish({ paused });
     }
+    // Also retried on every heartbeat, so a camera that failed to reopen
+    // gets another go instead of staying dark.
+    if (running && !switching) {
+      if (paused && stream) pauseCamera();
+      else if (!paused && !stream) resumeCamera();
+    }
     recorder?.sync();
     for (const cmd of reply.commands || []) {
       log(`command from the dashboard: ${cmd.type}`);
       if (cmd.type === "test_sound") alarm.play(settings.alert.active_sound);
+    }
+  }
+
+  /* Paused means the camera is off, not just ignored: the tracks are
+   * stopped (the camera light goes out) and reopened on resume. The tab and
+   * its heartbeat stay up, which is how a resume reaches us. */
+  async function pauseCamera() {
+    switching = true;
+    try {
+      liveWanted = false;
+      recorder?.finish();
+      recorder = null;
+      alarm?.silence();
+      if (openEvent) {
+        const end = nowSec();
+        uploader.submit({
+          kind: "end",
+          client_id: openEvent.id,
+          body: {
+            end_ts: end,
+            duration: Math.round((end - openEvent.start) * 10) / 10,
+          },
+        });
+        openEvent = null;
+      }
+      tracker = makeTracker();
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      if (video) video.srcObject = null;
+      publish({
+        camera_ok: false,
+        dog_on_couch: false,
+        dogs_in_frame: 0,
+        persons_in_frame: 0,
+        recording: false,
+        fps: 0,
+        detect_fps: 0,
+        last_error: null,
+      });
+      log("camera released");
+    } finally {
+      switching = false;
+    }
+  }
+
+  async function resumeCamera() {
+    switching = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      recorder = makeRecorder(stream);
+      recorder?.sync();
+      publish({ camera_ok: true, last_error: null });
+      log("camera reopened");
+    } catch (e) {
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      publish({ last_error: `Couldn't reopen the camera: ${e.message}` });
+      log(`could not reopen the camera: ${e.message}`);
+    } finally {
+      switching = false;
     }
   }
 
@@ -1017,12 +1088,13 @@ const Station = (() => {
 
     try {
       setPhase("Waiting for permission to use the camera\u2026");
-      stream = await navigator.mediaDevices.getUserMedia({
+      constraints = {
         video: cameraId
           ? { deviceId: { exact: cameraId } }
           : { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
-      });
+      };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
       await video.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
