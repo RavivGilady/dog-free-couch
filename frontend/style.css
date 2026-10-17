@@ -401,6 +401,7 @@ main {
 .sounds-list {
   display: grid;
   gap: 10px;
+  margin-top: 14px;
 }
 .sound {
   display: flex;
