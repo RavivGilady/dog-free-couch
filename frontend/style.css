@@ -676,12 +676,6 @@ input[type="email"] {
   padding: 1px 7px;
   vertical-align: 1px;
 }
-/* "Share logs", on a dev run only: the button with its line count beside
-   it rather than under it. */
-#station-logs-box {
-  align-items: center;
-  margin-top: 14px;
-}
 /* Pinned, not part of a panel: the preview has to stay on screen for the
    browser to keep handing out frames, whichever tab is being read. */
 .station-bar {

@@ -17,17 +17,8 @@ let CSRF = "";
 let devices = [];
 let deviceId = null;
 let eventsOffset = 0;
-/* Whether this server is a dev run (Config.DEV_MODE), which is the only
- * thing that unhides the developer-only controls -- today "Share logs" on
- * the camera station. The server decides; the page only obeys, and the
- * endpoint behind the button is gated by the same flag. */
-let dev = false;
 /* Where "Contact support" goes; empty hides the links. From /api/auth/me. */
 let supportEmail = "";
-/* The camera this tab has been running, remembered past Station.stop() so
- * the logs of a run that ended (or never started) still have a camera to
- * be filed under. */
-let stationDeviceId = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -192,7 +183,6 @@ async function boot() {
 
 async function enterApp(me) {
   CSRF = me.csrf_token;
-  dev = !!me.dev;
   supportEmail = me.support_email || "";
   $("#who").textContent = me.user.email;
   $("#auth-view").classList.add("hidden");
@@ -452,20 +442,6 @@ async function renderStationCard() {
     sel.innerHTML = html;
     sel.dataset.html = html;
   }
-  renderStationLogs();
-}
-
-/* The "Share logs" control: present only on a dev run, and only once this
- * tab has something to share. The count is the honest answer to "did it
- * log anything?" before the button is pressed. */
-function renderStationLogs() {
-  const box = $("#station-logs-box");
-  const lines = dev ? Station.logCount() : 0;
-  box.classList.toggle("hidden", !dev);
-  $("#btn-station-logs").disabled = !lines;
-  $("#station-logs-hint").textContent = lines
-    ? `${lines} line${lines === 1 ? "" : "s"} from this tab`
-    : "Nothing logged yet — start the camera here first.";
 }
 
 async function startStation(device) {
@@ -473,7 +449,6 @@ async function startStation(device) {
   err.textContent = "";
   err.classList.add("hidden");
   try {
-    stationDeviceId = device.id;
     await Station.start({ device, cameraId: $("#station-cam").value || null });
     deviceId = device.id;
     try {
@@ -513,7 +488,6 @@ $("#btn-station-start").addEventListener("click", async () => {
       try {
         await api(`/api/devices/${created.id}`, { method: "DELETE" });
       } catch (_) {}
-      stationDeviceId = null;
       await loadDevices();
     }
     $("#station-error").textContent = e.message;
@@ -538,48 +512,6 @@ $("#btn-station-stop").addEventListener("click", async () => {
   if (activeTab === "devices") {
     renderDevices();
     renderStationCard();
-  }
-});
-
-/* Send this tab's station log to the server, where it lands in
- * data/station-logs/ as one JSON file for whoever is debugging to read.
- *
- * Which camera it is filed under: the one this tab has been running, if it
- * still exists -- a start that failed takes its device with it, and the
- * selected camera is then the least surprising place for the report, since
- * the log lines name the device themselves either way. */
-function logsDeviceId() {
-  const known = (id) => devices.some((d) => d.id === id);
-  if (known(stationDeviceId)) return stationDeviceId;
-  if (known(deviceId)) return deviceId;
-  return devices[0]?.id ?? null;
-}
-
-$("#btn-station-logs").addEventListener("click", async () => {
-  const btn = $("#btn-station-logs");
-  const lines = Station.logLines();
-  if (!lines.length) return toast("Nothing logged in this tab yet");
-  const id = logsDeviceId();
-  if (!id) return toast("Add a camera first — logs are filed under one");
-
-  btn.disabled = true;
-  btn.textContent = "Sending…";
-  try {
-    const r = await api(`/api/devices/${id}/logs`, {
-      json: { lines, user_agent: navigator.userAgent },
-    });
-    toast(`Sent ${r.lines} lines — data/station-logs/${r.file}`);
-  } catch (e) {
-    // The flag lives on the server, so a page left open across a restart
-    // can still be showing a button the endpoint no longer answers.
-    toast(
-      e.status === 404
-        ? "This server isn't running in dev mode — reload the page"
-        : `Could not share the logs: ${e.message}`,
-    );
-  } finally {
-    btn.textContent = "Share logs";
-    renderStationLogs();
   }
 });
 
@@ -622,9 +554,6 @@ Station.onChange((st) => {
   sub.textContent = st.last_error || bits.join(" \u00b7 ");
   sub.classList.toggle("bad", !!st.last_error);
   $("#station-badge").classList.toggle("hidden", !st.dog_on_couch);
-  if (st.device?.id) stationDeviceId = st.device.id;
-  // Cheap, and the count climbs while the card is open.
-  if (activeTab === "devices") renderStationLogs();
 });
 
 /* ================= live ================= */
