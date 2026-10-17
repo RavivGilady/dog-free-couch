@@ -202,11 +202,10 @@ def download_sound(sound_id):
 # --------------------------------------------------------------------------
 
 def _tg_target(user) -> dict | None:
-    """The user's Telegram settings with the token to send through (their
-    own bot if they set one, else the server's shared bot), or None when
-    nothing should be sent."""
+    """The user's Telegram settings with the server's shared bot token to
+    send through, or None when nothing should be sent."""
     tg = user.telegram
-    tg["bot_token"] = tg["bot_token"] or current_app.config["DFC"].TELEGRAM_BOT_TOKEN
+    tg["bot_token"] = current_app.config["DFC"].TELEGRAM_BOT_TOKEN
     if tg["enabled"] and tg["bot_token"] and tg["chat_id"]:
         return tg
     return None

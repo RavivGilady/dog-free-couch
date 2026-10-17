@@ -253,6 +253,7 @@ $$(".tab").forEach((btn) =>
 /* ================= devices ================= */
 async function loadDevices() {
   const r = await api("/api/devices");
+  const hadDevice = !!currentDevice();
   devices = r.devices;
   let saved = null;
   try {
@@ -264,6 +265,9 @@ async function loadDevices() {
       : (devices[0]?.id ?? null);
   }
   renderDevicePicker();
+  // First camera just arrived while Settings was already open (add-camera
+  // races the tab switch): its form is still the disabled "add a camera" one.
+  if (!hadDevice && currentDevice() && activeTab === "settings") loadSettings();
 }
 
 function renderDevicePicker() {
@@ -1345,14 +1349,10 @@ async function loadSettings() {
   const tg = await api("/api/me/telegram");
   showTelegramState(tg);
   $("#tg-enabled").checked = tg.enabled;
-  $("#tg-chat").value = tg.chat_id || "";
   $("#tg-photo").checked = tg.send_photo;
   $("#tg-video").checked = tg.send_video;
-  onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
+  onbTelegram = !!(tg.enabled && tg.shared_bot && tg.chat_id);
   renderOnboarding();
-  $("#tg-token-hint").textContent = tg.bot_token_set
-    ? `currently ${tg.bot_token_hint}`
-    : "not set";
 }
 
 // Shown on every tab until the user links Telegram (or says "Not now").
@@ -1422,7 +1422,6 @@ $("#btn-banner-connect").addEventListener("click", connectTelegram);
 
 function showTelegramState(tg) {
   $("#tg-shared").classList.toggle("hidden", !tg.shared_bot);
-  $("#tg-own").open = !tg.shared_bot || tg.bot_token_set;
   $("#tg-status").textContent = tg.connected
     ? "Connected. Alerts go to your Telegram chat."
     : "Not connected. Press Connect, then Start in Telegram.";
@@ -1497,13 +1496,10 @@ $("#btn-save-tg").addEventListener("click", async () => {
     await api("/api/me/telegram", {
       json: {
         enabled: $("#tg-enabled").checked,
-        bot_token: $("#tg-token").value,
-        chat_id: $("#tg-chat").value,
         send_photo: $("#tg-photo").checked,
         send_video: $("#tg-video").checked,
       },
     });
-    $("#tg-token").value = "";
     toast("Telegram settings saved");
     loadSettings();
   } catch (e) {
@@ -1566,7 +1562,7 @@ function setOnb(name, on) {
 async function loadOnboardingTelegram() {
   try {
     const tg = await api("/api/me/telegram");
-    onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
+    onbTelegram = !!(tg.enabled && tg.shared_bot && tg.chat_id);
   } catch (_) {}
   renderOnboarding();
 }

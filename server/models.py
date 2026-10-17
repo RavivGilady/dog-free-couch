@@ -56,7 +56,6 @@ DEVICE_KINDS = (AGENT_KIND, BROWSER_KIND)
 
 TELEGRAM_DEFAULTS = {
     "enabled": False,
-    "bot_token": "",
     "chat_id": "",
     "send_photo": True,
     "send_video": True,
@@ -113,12 +112,10 @@ class User(Base):
         self.telegram_json = json.dumps(value)
 
     def telegram_public(self) -> dict:
-        """The bot token never goes back to the browser -- only whether one
-        is set and a masked hint so the user can tell which one it is."""
+        """Only the shared bot is used, so a token some older version stored
+        for the user is dropped here and never reaches the browser."""
         tg = self.telegram
-        token = tg.pop("bot_token", "") or ""
-        tg["bot_token_set"] = bool(token)
-        tg["bot_token_hint"] = (token[:6] + "..." + token[-4:]) if len(token) > 12 else ""
+        tg.pop("bot_token", None)
         return tg
 
 
