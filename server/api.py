@@ -270,6 +270,18 @@ def update_device_settings(device_id):
     return jsonify({"device": d.to_dict()})
 
 
+@bp.post("/devices/<int:device_id>/pause")
+@login_required
+def pause_device(device_id):
+    """Pause or resume a camera. The flag lives on the server, so it holds
+    whichever device it was pressed from and survives the camera restarting;
+    the camera picks it up on its next heartbeat."""
+    d = _own_device(device_id)
+    d.paused = bool((request.get_json(silent=True) or {}).get("paused"))
+    db().commit()
+    return jsonify({"device": d.to_dict()})
+
+
 @bp.post("/devices/<int:device_id>/commands")
 @login_required
 def queue_command(device_id):
@@ -391,6 +403,9 @@ def _prune_log_reports(directory: Path) -> None:
 @login_required
 def stream(device_id):
     d = _own_device(device_id)
+    if d.paused:
+        # A paused camera shows nothing, whoever asks.
+        return error("camera is paused", 409)
     hub = live()
     hub.mark_watched(d.id)
     dev_id = d.id

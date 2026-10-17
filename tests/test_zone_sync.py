@@ -81,6 +81,10 @@ class FakeMonitor:
     def __init__(self):
         self.status = {}
         self.zones = []
+        self.paused = False
+
+    def set_paused(self, paused):
+        self.paused = paused
 
     def apply_video_settings(self, v):
         pass

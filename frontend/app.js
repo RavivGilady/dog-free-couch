@@ -313,9 +313,10 @@ function renderDevices() {
       <span class="dot ${d.online ? "live" : ""}"></span>
       <div>
         <div class="name">${esc(d.name)} <span class="kind">${browser ? "browser" : "agent"}</span></div>
-        <div class="sub">${here ? "Running in this tab" : d.online ? "Online" : "Offline"} &middot; last seen ${fmtAgo(d.last_seen)}</div>
+        <div class="sub">${here ? "Running in this tab" : d.online ? "Online" : "Offline"}${d.paused ? " &middot; Paused" : ""} &middot; last seen ${fmtAgo(d.last_seen)}</div>
       </div>
       <div class="spacer"></div>
+      <button class="small secondary btn-pausedev">${d.paused ? "Resume" : "Pause"}</button>
       <button class="small secondary btn-rename">Rename</button>
       ${actions}
       <button class="small ghost btn-deldev">Delete</button>
@@ -334,6 +335,8 @@ $("#devices-list").addEventListener("click", async (e) => {
       const name = prompt("Camera name", dev.name);
       if (!name) return;
       await api(`/api/devices/${id}`, { method: "PATCH", json: { name } });
+    } else if (e.target.classList.contains("btn-pausedev")) {
+      await api(`/api/devices/${id}/pause`, { json: { paused: !dev.paused } });
     } else if (e.target.classList.contains("btn-rotate")) {
       if (
         !confirm(
@@ -646,6 +649,13 @@ function startStream(force = false) {
     empty.classList.remove("hidden");
     return;
   }
+  // A paused camera shows nothing: no request is made, and the server
+  // would not send frames anyway.
+  if (currentDevice()?.paused) {
+    stopStream();
+    img.classList.add("hidden");
+    return;
+  }
   const src = `/api/devices/${deviceId}/stream.mjpg`;
   // The cache buster matters: without it a reconnect can be served from the
   // dead connection's cache entry and never produce a new frame.
@@ -714,6 +724,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 let wasOnline = null;
+let wasPaused = false;
 async function pollStatus() {
   if ($("#app-view").classList.contains("hidden")) return;
   try {
@@ -737,7 +748,9 @@ async function pollStatus() {
         ? "Offline"
         : !s.running
           ? "Stopped"
-          : s.dog_on_couch
+          : d.paused
+            ? "Paused"
+            : s.dog_on_couch
             ? "ON COUCH"
             : s.camera_ok
               ? "Watching"
@@ -757,23 +770,35 @@ async function pollStatus() {
     // "Silent" is the honest answer whenever the agent has no mic: clips are
     // still recorded, so this is the only place that difference shows.
     $("#s-audio").textContent = !online ? "—" : s.audio_ok ? "On" : "Silent";
-    $("#stream-badge").classList.toggle("hidden", !(online && s.dog_on_couch));
+    $("#stream-badge").classList.toggle(
+      "hidden",
+      !(online && s.dog_on_couch && !d.paused),
+    );
+    const pauseBtn = $("#btn-pause");
+    pauseBtn.disabled = !d;
+    pauseBtn.textContent = d?.paused ? "Resume camera" : "Pause camera";
 
     if (d && activeTab === "live") {
       // The server ends a stream after ~20s without frames, so open a fresh
       // one when the camera comes back -- unless the page is hidden, where
       // the feed is deliberately torn down until the user returns.
       if (online && wasOnline === false && !document.hidden) startStream(true);
+      // Coming back from a pause, the stream has to be opened afresh.
+      if (online && wasPaused && !d.paused && !document.hidden) startStream(true);
       const empty = $("#stream-empty");
-      empty.textContent =
-        d.kind === "browser"
+      empty.textContent = d.paused
+        ? `${d.name} is paused. Resume it to see the camera.`
+        : d.kind === "browser"
           ? `${d.name} is offline. Open the dashboard on that device and start its camera.`
           : `${d.name} is offline. Start the agent on its computer.`;
-      empty.classList.toggle("hidden", online);
-      $("#stream").classList.toggle("hidden", !online);
+      const showVideo = online && !d.paused;
+      if (d.paused) stopStream();
+      empty.classList.toggle("hidden", showVideo);
+      $("#stream").classList.toggle("hidden", !showVideo);
     }
 
     wasOnline = d ? online : null;
+    wasPaused = !!d?.paused;
 
     const err = $("#s-error");
     if (online && s.last_error) {
@@ -787,6 +812,18 @@ async function pollStatus() {
   } catch (_) {}
 }
 setInterval(pollStatus, 2000);
+
+$("#btn-pause").addEventListener("click", async () => {
+  const d = currentDevice();
+  if (!d) return;
+  try {
+    await api(`/api/devices/${d.id}/pause`, { json: { paused: !d.paused } });
+    toast(d.paused ? "Resuming the camera" : "Camera paused");
+    pollStatus();
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+});
 
 $("#btn-test-sound").addEventListener("click", async () => {
   if (!deviceId) return;

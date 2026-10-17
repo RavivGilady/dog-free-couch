@@ -114,6 +114,9 @@ const Station = (() => {
   let onChange = () => {};
 
   let status = blankStatus();
+  let paused = false;
+  let videoWanted = null; // what start() asked the browser for, to reopen with
+  let switching = false; // a pause or resume is in flight
 
   function blankStatus() {
     return {
@@ -123,6 +126,7 @@ const Station = (() => {
       dog_on_couch: false,
       dogs_in_frame: 0,
       persons_in_frame: 0,
+      paused: false,
       fps: 0,
       recording: false,
       last_error: null,
@@ -722,6 +726,9 @@ const Station = (() => {
   }
 
   async function detectOnce() {
+    // Paused: the camera is released, so there is nothing to look at (and
+    // nothing to mistake for a lost feed).
+    if (paused || !stream) return;
     if (!video.videoWidth || video.readyState < 2) {
       // A paused or still-starting video is not a lost camera; a stream that
       // ended (webcam unplugged, another app took it) is.
@@ -917,10 +924,105 @@ const Station = (() => {
     if (!!reply.live_wanted !== liveWanted)
       log(reply.live_wanted ? "someone is watching" : "nobody is watching");
     liveWanted = !!reply.live_wanted;
+    if (!!reply.paused !== paused) {
+      log(reply.paused ? "paused from the dashboard" : "resumed from the dashboard");
+      paused = !!reply.paused;
+      publish({ paused });
+    }
+    // Also retried on every heartbeat, so a camera that failed to reopen
+    // gets another go instead of staying dark.
+    if (running && !switching) {
+      if (paused && stream) pauseCamera();
+      else if (!paused && !stream) resumeCamera();
+    }
     recorder?.sync();
     for (const cmd of reply.commands || []) {
       log(`command from the dashboard: ${cmd.type}`);
       if (cmd.type === "test_sound") alarm.play(settings.alert.active_sound);
+    }
+  }
+
+  /* Paused means the camera is off, not just ignored: the tracks are
+   * stopped (the camera light goes out) and reopened on resume. The tab and
+   * its heartbeat stay up, which is how a resume reaches us. */
+  async function pauseCamera() {
+    switching = true;
+    try {
+      liveWanted = false;
+      recorder?.finish();
+      recorder = null;
+      alarm?.silence();
+      if (openEvent) {
+        const end = nowSec();
+        uploader.submit({
+          kind: "end",
+          client_id: openEvent.id,
+          body: {
+            end_ts: end,
+            duration: Math.round((end - openEvent.start) * 10) / 10,
+          },
+        });
+        openEvent = null;
+      }
+      tracker = makeTracker();
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      if (video) video.srcObject = null;
+      publish({
+        camera_ok: false,
+        dog_on_couch: false,
+        dogs_in_frame: 0,
+        persons_in_frame: 0,
+        recording: false,
+        fps: 0,
+        detect_fps: 0,
+        last_error: null,
+      });
+      log("camera released");
+    } finally {
+      switching = false;
+    }
+  }
+
+  // The microphone goes into the clips, so it is asked for together with the
+  // camera -- the browser prompts for both at once. Refusing the mic refuses
+  // the whole call, though, and a station with no sound beats no station at
+  // all, so that drops back to video alone.
+  async function openStream() {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: videoWanted,
+        // The alarm is going off in the same room: processing meant for
+        // a voice call would gate it away as noise, and the alarm is
+        // half of what makes the clip worth hearing.
+        audio: { echoCancellation: false, noiseSuppression: false },
+      });
+    } catch (e) {
+      log(`no microphone (${e.name || e.message}); clips will be silent`);
+      return navigator.mediaDevices.getUserMedia({
+        video: videoWanted,
+        audio: false,
+      });
+    }
+  }
+
+  async function resumeCamera() {
+    switching = true;
+    try {
+      stream = await openStream();
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      recorder = makeRecorder(stream);
+      recorder?.sync();
+      publish({ camera_ok: true, last_error: null });
+      log("camera reopened");
+    } catch (e) {
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      publish({ last_error: `Couldn't reopen the camera: ${e.message}` });
+      log(`could not reopen the camera: ${e.message}`);
+    } finally {
+      switching = false;
     }
   }
 
@@ -1168,28 +1270,10 @@ const Station = (() => {
 
     try {
       setPhase("Waiting for permission to use the camera\u2026");
-      const videoWanted = cameraId
+      videoWanted = cameraId
         ? { deviceId: { exact: cameraId } }
         : { width: { ideal: 1280 }, height: { ideal: 720 } };
-      // The microphone goes into the clips, so it is asked for together
-      // with the camera -- the browser prompts for both at once. Refusing
-      // the mic refuses the whole call, though, and a station with no sound
-      // beats no station at all, so that drops back to video alone.
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: videoWanted,
-          // The alarm is going off in the same room: processing meant for
-          // a voice call would gate it away as noise, and the alarm is
-          // half of what makes the clip worth hearing.
-          audio: { echoCancellation: false, noiseSuppression: false },
-        });
-      } catch (e) {
-        log(`no microphone (${e.name || e.message}); clips will be silent`);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: videoWanted,
-          audio: false,
-        });
-      }
+      stream = await openStream();
       video.srcObject = stream;
       await video.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
