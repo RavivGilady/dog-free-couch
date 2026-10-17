@@ -1269,12 +1269,8 @@ async function loadSettings() {
   const tg = await api("/api/me/telegram");
   showTelegramState(tg);
   $("#tg-enabled").checked = tg.enabled;
-  $("#tg-chat").value = tg.chat_id || "";
   $("#tg-photo").checked = tg.send_photo;
   $("#tg-video").checked = tg.send_video;
-  $("#tg-token-hint").textContent = tg.bot_token_set
-    ? `currently ${tg.bot_token_hint}`
-    : "not set";
 }
 
 // Shown on every tab until the user links Telegram (or says "Not now").
@@ -1343,7 +1339,6 @@ $("#btn-banner-connect").addEventListener("click", connectTelegram);
 
 function showTelegramState(tg) {
   $("#tg-shared").classList.toggle("hidden", !tg.shared_bot);
-  $("#tg-own").open = !tg.shared_bot || tg.bot_token_set;
   $("#tg-status").textContent = tg.connected
     ? "Connected. Alerts go to your Telegram chat."
     : "Not connected. Press Connect, then Start in Telegram.";
@@ -1418,13 +1413,10 @@ $("#btn-save-tg").addEventListener("click", async () => {
     await api("/api/me/telegram", {
       json: {
         enabled: $("#tg-enabled").checked,
-        bot_token: $("#tg-token").value,
-        chat_id: $("#tg-chat").value,
         send_photo: $("#tg-photo").checked,
         send_video: $("#tg-video").checked,
       },
     });
-    $("#tg-token").value = "";
     toast("Telegram settings saved");
     loadSettings();
   } catch (e) {

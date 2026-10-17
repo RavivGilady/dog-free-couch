@@ -669,15 +669,10 @@ def set_telegram():
     tg = user.telegram
     tg.update({
         "enabled": bool(body.get("enabled")),
-        "chat_id": str(body.get("chat_id", "")).strip()[:64],
         "send_photo": bool(body.get("send_photo", True)),
         "send_video": bool(body.get("send_video", True)),
     })
-    # Blank means "keep the stored token": the page never receives the real
-    # token, so it can't echo it back.
-    token = str(body.get("bot_token", "")).strip()
-    if token:
-        tg["bot_token"] = token[:200]
+    tg.pop("bot_token", None)
     user.telegram = tg
     db().commit()
     return jsonify(_telegram_state(user))
@@ -687,6 +682,5 @@ def set_telegram():
 @login_required
 def test_telegram():
     tg = current_user().telegram
-    ok, message = telegram.check(tg.get("bot_token", "") or _shared_token(),
-                                 tg.get("chat_id", ""))
+    ok, message = telegram.check(_shared_token(), tg.get("chat_id", ""))
     return jsonify({"ok": ok, "message": message})
