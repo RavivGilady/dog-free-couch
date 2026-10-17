@@ -6,13 +6,13 @@ from playwright.sync_api import expect
 
 
 def test_login_page_loads_clean(page):
-    page.goto("/app")
+    page.goto("/")
     expect(page.locator("#auth-title")).to_have_text("Sign in")
     assert page.js_errors == []
 
 
 def test_bad_login_shows_error(page):
-    page.goto("/app")
+    page.goto("/")
     page.fill("#auth-email", "nobody@example.com")
     page.fill("#auth-password", "wrongpass")
     page.click("#auth-submit")
@@ -73,7 +73,7 @@ def test_session_survives_reload_and_logout_returns_to_login(signed_in):
 
 
 def test_signup_and_login_toggle(page):
-    page.goto("/app")
+    page.goto("/")
     page.click("#auth-switch a")
     expect(page.locator("#auth-title")).to_have_text("Create an account")
     expect(page.locator("#auth-submit")).to_have_text("Create account")
@@ -82,7 +82,7 @@ def test_signup_and_login_toggle(page):
 
 
 def test_short_password_is_rejected_on_signup(page):
-    page.goto("/app")
+    page.goto("/")
     page.click("#auth-switch a")
     page.fill("#auth-email", "short@example.com")
     page.fill("#auth-password", "abc")
@@ -103,7 +103,7 @@ def test_login_with_existing_account(page, signed_in):
 def test_events_tab_empty_state(camera):
     p = camera.page
     p.click(".tab[data-tab=events]")
-    expect(p.locator("#events-list")).to_contain_text("No alerts yet")
+    expect(p.locator("#events-list")).to_contain_text("No events yet")
 
 
 def test_events_tab_lists_event_and_delete_removes_it(camera):
@@ -121,7 +121,7 @@ def test_events_tab_lists_event_and_delete_removes_it(camera):
     expect(p.locator("#events-list .event")).to_have_count(0)
     p.reload()
     p.click(".tab[data-tab=events]")
-    expect(p.locator("#events-list")).to_contain_text("No alerts yet")
+    expect(p.locator("#events-list")).to_contain_text("No events yet")
     assert p.js_errors == []
 
 
@@ -196,7 +196,7 @@ def _mock_telegram(page, **tg):
 
 def test_telegram_banner_shows_for_shared_bot_and_can_be_dismissed(page):
     _mock_telegram(page)
-    page.goto("/app")
+    page.goto("/")
     page.click("#auth-switch a")
     page.fill("#auth-email", "tgbanner@example.com")
     page.fill("#auth-password", "password123")
@@ -210,7 +210,7 @@ def test_telegram_banner_shows_for_shared_bot_and_can_be_dismissed(page):
 
 def test_telegram_banner_hidden_when_already_connected(page):
     _mock_telegram(page, connected=True)
-    page.goto("/app")
+    page.goto("/")
     page.click("#auth-switch a")
     page.fill("#auth-email", "tgconn@example.com")
     page.fill("#auth-password", "password123")
@@ -221,10 +221,3 @@ def test_telegram_banner_hidden_when_already_connected(page):
 
 def test_telegram_banner_hidden_without_shared_bot(signed_in):
     expect(signed_in.locator("#tg-banner")).to_be_hidden()
-
-
-def test_landing_page_links_into_the_app(page):
-    page.goto("/")
-    page.click("a[href='/app#signup']:visible >> nth=0")
-    expect(page.locator("#auth-title")).to_have_text("Create an account")
-    assert page.js_errors == []
