@@ -27,6 +27,9 @@
           <button type="submit" id="auth-submit">Sign in</button>
         </form>
         <div class="auth-switch" id="auth-switch"></div>
+        <p class="hint auth-links">
+          <a href="/">About Dog Free Couch</a> &middot; <a href="/help">Help</a>
+        </p>
       </main>
     </div>
 
@@ -53,14 +56,36 @@
         <button class="ghost small" id="btn-logout">Sign out</button>
       </header>
 
+      <div id="tg-banner" class="tg-banner hidden">
+        <span>Get an alert with a photo and clip on Telegram when the dog gets on the couch.</span>
+        <button id="btn-banner-connect" class="small">Connect Telegram</button>
+        <a class="tg-fallback hidden" target="_blank" rel="noopener"
+          >Telegram didn't open? Use the web link</a
+        >
+        <button id="btn-banner-dismiss" class="ghost small">Not now</button>
+      </div>
+
       <main>
+        <!-- Setup checklist: shown on Live and Devices until finished or
+             dismissed. Built by renderOnboarding() in app.js. -->
+        <section id="onboarding" class="card onboarding hidden">
+          <div class="onb-head">
+            <h2>Get set up</h2>
+            <span class="hint" id="onb-progress"></span>
+            <span class="spacer"></span>
+            <button class="small ghost" id="btn-onb-dismiss">Hide</button>
+          </div>
+          <ol id="onb-steps" class="onb-steps"></ol>
+        </section>
+
         <!-- ================= LIVE ================= -->
         <section id="tab-live" class="panel active">
           <div class="live-grid">
             <div class="video-wrap">
               <img id="stream" class="hidden" alt="Live camera view" />
               <div id="stream-empty" class="video-empty">
-                Add a camera in the Devices tab to get started.
+                <span>No camera yet.</span>
+                <button id="btn-empty-add" class="small">Add a camera</button>
               </div>
               <div id="stream-badge" class="badge hidden">DOG ON COUCH</div>
               <!-- Corners are kept as fractions of the frame, so this
@@ -116,6 +141,7 @@
                 </div>
               </div>
               <div id="s-error" class="alert-error hidden"></div>
+              <div id="trouble" class="trouble hidden"></div>
 
               <div class="zone-box" id="zone-box">
                 <span class="k">Couch zone</span>
@@ -288,23 +314,37 @@
             <h3>Telegram</h3>
             <p class="muted">
               Sends a photo when the dog gets on, and the video clip once it is
-              uploaded, for every camera on your account. The token is stored on
-              the server and never sent back to this page.
+              uploaded, for every camera on your account.
             </p>
+            <div id="tg-shared" class="hidden">
+              <p id="tg-status" class="muted"></p>
+              <div class="row">
+                <button id="btn-connect-tg">Connect Telegram</button>
+                <button id="btn-disconnect-tg" class="secondary hidden">
+                  Disconnect
+                </button>
+              </div>
+              <a class="tg-fallback hidden" target="_blank" rel="noopener"
+                >Telegram didn't open? Use the web link</a
+              >
+            </div>
             <label class="check"
               ><input type="checkbox" id="tg-enabled" /> Enabled</label
             >
-            <label
-              >Bot token <span class="hint" id="tg-token-hint"></span
-            ></label>
-            <input
-              type="password"
-              id="tg-token"
-              placeholder="Leave blank to keep current token"
-              autocomplete="off"
-            />
-            <label>Chat id</label>
-            <input type="text" id="tg-chat" placeholder="123456789" />
+            <details id="tg-own">
+              <summary>Use your own bot instead</summary>
+              <label
+                >Bot token <span class="hint" id="tg-token-hint"></span
+              ></label>
+              <input
+                type="password"
+                id="tg-token"
+                placeholder="Leave blank to keep current token"
+                autocomplete="off"
+              />
+              <label>Chat id</label>
+              <input type="text" id="tg-chat" placeholder="123456789" />
+            </details>
             <label class="check"
               ><input type="checkbox" id="tg-photo" checked /> Send
               snapshot</label
@@ -403,6 +443,19 @@
               </p>
               <pre id="token-cmd"></pre>
               <button id="btn-copy-token" class="small secondary">Copy</button>
+              <p class="hint">
+                On a Raspberry Pi or Linux computer, this one installs
+                everything and keeps the camera running in the background
+                (add <code>--pi</code> for the ribbon-cable camera):
+              </p>
+              <pre id="token-install"></pre>
+              <button id="btn-copy-install" class="small secondary">
+                Copy
+              </button>
+              <p class="hint">
+                Windows or macOS? See the
+                <a href="/help#agent" target="_blank">install steps</a>.
+              </p>
             </div>
           </div>
         </section>
@@ -419,10 +472,20 @@
         <div class="station-info">
           <strong id="station-title">This device</strong>
           <span class="sub" id="station-sub">Starting&hellip;</span>
+          <div id="station-progress" class="progress hidden" title="Downloading the detection model">
+            <i></i>
+          </div>
         </div>
         <button id="btn-station-stop" class="small ghost">Stop camera</button>
       </div>
     </div>
+
+    <footer id="app-foot" class="app-foot hidden">
+      <a href="/help" target="_blank">Help</a>
+      <a href="#" id="link-setup">Setup guide</a>
+      <a href="#" id="link-support" class="hidden">Contact support</a>
+      <a href="#" id="link-feedback" class="hidden">Send feedback</a>
+    </footer>
 
     <div id="toast" class="toast hidden"></div>
 

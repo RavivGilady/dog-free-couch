@@ -106,6 +106,24 @@ def test_auth_flow_and_csrf():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_signup_race_on_same_email_is_a_409_not_a_500():
+    # Two sign-ups can both pass the "already exists?" check before either
+    # commits; the unique index then rejects the second.
+    from unittest import mock
+
+    from sqlalchemy.orm import Query
+
+    app, tmp = make_app()
+    try:
+        body = {"email": "a@x.io", "password": "password123"}
+        assert app.test_client().post("/api/auth/register", json=body).status_code == 201
+        with mock.patch.object(Query, "first", return_value=None):
+            r = app.test_client().post("/api/auth/register", json=body)
+        assert r.status_code == 409
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_signup_can_be_closed():
     app, tmp = make_app()
     try:
@@ -490,6 +508,29 @@ def test_live_frames_only_relayed_while_watched():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_cached_frame_token_is_dropped_on_rotation_and_delete():
+    """Frames skip the database for a token seen recently, but a rotated or
+    deleted token must stop working at once, not when the cache expires."""
+    app, tmp = make_app()
+    try:
+        b = Browser(app, "a@x.io")
+        dev_id, token = b.add_device()
+        agent = Agent(app, token)
+        hdr = {"Content-Type": "image/jpeg"}
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 200
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 200  # cached
+
+        new = b.req("post", f"/api/devices/{dev_id}/token").get_json()["token"]
+        assert agent.post("/frame", data=JPEG, headers=hdr).status_code == 401
+        fresh = Agent(app, new)
+        assert fresh.post("/frame", data=JPEG, headers=hdr).status_code == 200
+
+        assert b.req("delete", f"/api/devices/{dev_id}").status_code == 200
+        assert fresh.post("/frame", data=JPEG, headers=hdr).status_code == 401
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_stream_ends_when_camera_is_silent():
     """An offline camera must not pin a server thread forever."""
     import server.api as api
@@ -533,6 +574,60 @@ def test_frontend_is_served():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_public_pages_and_app_route():
+    app, tmp = make_app()
+    try:
+        anon = app.test_client()
+        # Visitors get the pitch, with a way into the app.
+        home = anon.get("/").data
+        assert b"Create a free account" in home and b"/app#signup" in home
+        assert b"What do I need?" in home
+        assert b"Dog Free Couch" in anon.get("/app").data
+        assert b'id="auth-form"' in anon.get("/app").data
+        assert anon.get("/help").status_code == 200
+        for img in ("hero", "alert"):
+            r = anon.get(f"/assets/img/{img}.svg")
+            assert r.status_code == 200 and b"<svg" in r.data
+        # Signed-in people still land on their dashboard at "/".
+        b = Browser(app, "pages@example.com")
+        assert b'id="auth-form"' in b.c.get("/").data
+        assert b"Create a free account" not in b.c.get("/").data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_support_email_is_optional_and_escaped():
+    app, tmp = make_app()
+    try:
+        c = app.test_client()
+        assert b"mailto:" not in c.get("/help").data
+        assert b"{{SUPPORT_EMAIL}}" not in c.get("/").data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    app, tmp = make_app(SUPPORT_EMAIL='help@example.com"><script>x</script>')
+    try:
+        c = app.test_client()
+        page = c.get("/help").data
+        assert b"mailto:help@example.com" in page
+        assert b"<script>x</script>" not in page
+        assert b"{{SUPPORT_EMAIL}}" not in page
+        b = Browser(app, "sup@example.com")
+        assert b.c.get("/api/auth/me").get_json()["support_email"].startswith("help@")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_agent_installer_is_served():
+    app, tmp = make_app()
+    try:
+        r = app.test_client().get("/install.sh")
+        assert r.status_code == 200
+        assert r.data.startswith(b"#!/usr/bin/env bash")
+        assert b"dog-free-couch.service" in r.data
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     import traceback
 
@@ -548,3 +643,20 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     sys.exit(1 if failures else 0)
+
+
+def test_late_frame_does_not_replace_a_newer_one():
+    app, tmp = make_app()
+    try:
+        b = Browser(app, "a@x.io")
+        dev_id, token = b.add_device()
+        agent = Agent(app, token)
+        hub = app.extensions["dfc"]["live"]
+        hub.mark_watched(dev_id)
+        newer, older = JPEG + b"new", JPEG + b"old"
+        for data, seq in ((newer, "20"), (older, "10")):
+            agent.post("/frame", data=data,
+                       headers={"Content-Type": "image/jpeg", "X-Frame-Seq": seq})
+        assert hub.latest(dev_id)[1] == newer
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

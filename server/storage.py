@@ -13,6 +13,7 @@ steer a write (or a read) outside its own media.
 from __future__ import annotations
 
 import mimetypes
+import uuid
 import secrets
 import time
 from pathlib import Path
@@ -46,6 +47,13 @@ class LocalStorage:
         tmp.replace(p)
         return p.stat().st_size
 
+    def check(self) -> None:
+        """Readiness probe: the media directory is writable."""
+        # Unique name: concurrent probes must not race on one file.
+        probe = self.root / f".healthcheck-{uuid.uuid4().hex}"
+        probe.write_bytes(b"ok")
+        probe.unlink(missing_ok=True)
+
     def read_bytes(self, key: str) -> bytes:
         return self._path(key).read_bytes()
 
@@ -69,6 +77,7 @@ class S3Storage:
     def __init__(self, bucket: str, endpoint_url: str | None = None, region: str | None = None):
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as e:  # pragma: no cover
             raise RuntimeError("STORAGE=s3 needs boto3: pip install boto3") from e
         if not bucket:
@@ -76,12 +85,17 @@ class S3Storage:
         self.bucket = bucket
         # Credentials come from the standard AWS_ACCESS_KEY_ID /
         # AWS_SECRET_ACCESS_KEY environment variables.
-        self.s3 = boto3.client("s3", endpoint_url=endpoint_url, region_name=region)
+        self.s3 = boto3.client(
+            "s3", endpoint_url=endpoint_url, region_name=region,
+            config=Config(connect_timeout=5, read_timeout=60, retries={"max_attempts": 2}))
 
     def save(self, key: str, fileobj) -> int:
         ctype = mimetypes.guess_type(key)[0] or "application/octet-stream"
         self.s3.upload_fileobj(fileobj, self.bucket, key, ExtraArgs={"ContentType": ctype})
         return int(self.s3.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+
+    def check(self) -> None:
+        self.s3.head_bucket(Bucket=self.bucket)
 
     def read_bytes(self, key: str) -> bytes:
         return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()

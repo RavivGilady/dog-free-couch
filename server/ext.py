@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import secrets
 import threading
+import time
 
 from flask import current_app, g, jsonify, request, session
 
@@ -34,6 +35,7 @@ def current_user() -> User | None:
     if "user" not in g:
         uid = session.get("uid")
         g.user = db().get(User, uid) if uid else None
+        g.log_user_id = g.user.id if g.user else None
     return g.user
 
 
@@ -70,6 +72,51 @@ def device_required(fn):
         if device is None:
             return error("unknown device token", 401)
         g.device = device
+        g.log_user_id, g.log_device_id = device.user_id, device.id
+        return fn(*a, **kw)
+    return wrapper
+
+
+# A live view sends a frame many times a second, and looking the device up
+# in the database each time costs a network round trip when it is hosted
+# (Neon). So the frame endpoint remembers which device a token belongs to for
+# a short while. Every place that changes or removes a token calls
+# forget_device_tokens(), and the server is a single process, so a rotated
+# or deleted token stops working at once rather than when the entry expires.
+_TOKEN_TTL_SEC = 60.0
+_token_cache: dict[str, tuple[int, float]] = {}
+_token_cache_lock = threading.Lock()
+
+
+def forget_device_tokens(device_id: int) -> None:
+    with _token_cache_lock:
+        for h in [h for h, (d, _) in _token_cache.items() if d == device_id]:
+            del _token_cache[h]
+
+
+def frame_device_required(fn):
+    """Like device_required, but only yields g.device_id and skips the
+    database when the token was seen recently. For the hot frame upload."""
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return error("missing device token", 401)
+        h = hash_token(auth[7:].strip())
+        now = time.monotonic()
+        with _token_cache_lock:
+            hit = _token_cache.get(h)
+        if hit and hit[1] > now:
+            g.device_id = hit[0]
+            return fn(*a, **kw)
+        device = db().query(Device).filter_by(token_hash=h).first()
+        if device is None:
+            return error("unknown device token", 401)
+        with _token_cache_lock:
+            if len(_token_cache) > 1000:
+                _token_cache.clear()
+            _token_cache[h] = (device.id, now + _TOKEN_TTL_SEC)
+        g.device_id = device.id
         return fn(*a, **kw)
     return wrapper
 

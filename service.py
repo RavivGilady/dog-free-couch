@@ -323,7 +323,11 @@ class MonitorService:
                 # they play back at real speed.
                 if t0 >= next_clip_frame:
                     self.recorder.feed(frame)
-                    next_clip_frame = max(t0, next_clip_frame) + 1.0 / self.clip_fps
+                    # Step from the previous slot, not from now: stepping from
+                    # now throws away how late this frame was, and a camera
+                    # whose frames don't divide the slot evenly (22fps feeding
+                    # a 15fps clip) ends up skipping every other frame.
+                    next_clip_frame = max(t0, next_clip_frame + 1.0 / self.clip_fps)
                 self.status["recording"] = self.recorder.recording
 
                 annotated = self._annotate(frame.copy(), self._boxes)

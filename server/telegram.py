@@ -9,9 +9,12 @@ Telegram must never fail an agent's upload.
 """
 from __future__ import annotations
 
-import sys
+import json
+import logging
 
 import requests
+
+log = logging.getLogger("dfc.telegram")
 
 _API = "https://api.telegram.org/bot{token}/{method}"
 _MAX_VIDEO_BYTES = 50 * 1024 * 1024  # Telegram's bot upload limit
@@ -30,7 +33,7 @@ def send_photo(token: str, chat_id: str, caption: str, jpeg: bytes | None) -> bo
             r = _post(token, "sendMessage", 10, data={"chat_id": chat_id, "text": caption})
         return r.ok
     except Exception as e:
-        print(f"[telegram] photo failed: {e}", file=sys.stderr)
+        log.warning("photo failed: %s", e.__class__.__name__)
         return False
 
 
@@ -44,10 +47,10 @@ def send_video(token: str, chat_id: str, caption: str, data: bytes, filename: st
         r = _post(token, "sendVideo", 120, data={"chat_id": chat_id, "caption": caption},
                   files={"video": (filename, data)})
         if not r.ok:
-            print(f"[telegram] sendVideo failed: {r.status_code} {r.text[:200]}", file=sys.stderr)
+            log.warning("sendVideo failed: HTTP %s %s", r.status_code, r.text[:200])
         return r.ok
     except Exception as e:
-        print(f"[telegram] video failed: {e}", file=sys.stderr)
+        log.warning("video failed: %s", e.__class__.__name__)
         return False
 
 
@@ -70,3 +73,64 @@ def check(token: str, chat_id: str) -> tuple:
         return True, f"Sent a test message via @{name}."
     except Exception as e:
         return False, f"Could not reach Telegram: {e}"
+
+
+# --------------------------------------------------------------------------
+# the shared bot: one token owned by the server, many users linked to it
+# --------------------------------------------------------------------------
+
+def send_message(token: str, chat_id, text: str, button: tuple | None = None) -> bool:
+    """`button` is (label, https url): a tap-through under the message."""
+    data = {"chat_id": chat_id, "text": text}
+    if button:
+        data["reply_markup"] = json.dumps(
+            {"inline_keyboard": [[{"text": button[0], "url": button[1]}]]})
+    try:
+        return _post(token, "sendMessage", 10, data=data).ok
+    except Exception as e:
+        log.warning("message failed: %s", e.__class__.__name__)
+        return False
+
+
+def bot_username(token: str) -> str:
+    """The bot's @name, or "" if Telegram rejects the token or is unreachable."""
+    try:
+        r = requests.get(_API.format(token=token, method="getMe"), timeout=10)
+        return r.json().get("result", {}).get("username", "") if r.ok else ""
+    except Exception:
+        return ""
+
+
+def set_webhook(token: str, url: str, secret: str) -> bool:
+    try:
+        r = _post(token, "setWebhook", 10, data={
+            "url": url, "secret_token": secret, "allowed_updates": '["message"]'})
+        return r.ok
+    except Exception as e:
+        log.warning("setWebhook failed: %s", e.__class__.__name__)
+        return False
+
+
+def webhook_url(token: str) -> str | None:
+    """The webhook Telegram currently pushes to ("" if none), or None if
+    it could not be read."""
+    try:
+        r = requests.get(_API.format(token=token, method="getWebhookInfo"), timeout=10)
+        return r.json().get("result", {}).get("url", "") if r.ok else None
+    except Exception:
+        return None
+
+
+def delete_webhook(token: str) -> None:
+    try:
+        _post(token, "deleteWebhook", 10)
+    except Exception:
+        pass
+
+
+def get_updates(token: str, offset: int, timeout: int = 25) -> list:
+    """Long poll. Raises on failure so the caller can back off."""
+    r = _post(token, "getUpdates", timeout + 10,
+              data={"offset": offset, "timeout": timeout, "allowed_updates": '["message"]'})
+    r.raise_for_status()
+    return r.json().get("result", [])

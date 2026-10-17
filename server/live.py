@@ -24,11 +24,20 @@ class LiveHub:
         self._lock = threading.Condition()
         self._frames: dict[int, tuple[float, bytes]] = {}
         self._watched: dict[int, float] = {}
+        self._seqs: dict[int, int] = {}
 
-    def push(self, device_id: int, jpeg: bytes) -> None:
+    def push(self, device_id: int, jpeg: bytes, seq: int | None = None) -> bool:
+        """Store the newest frame. A sender that uploads several frames at
+        once passes a rising `seq`, so one that arrives late is dropped
+        instead of replacing a newer picture."""
         with self._lock:
+            if seq is not None:
+                if seq <= self._seqs.get(device_id, -1):
+                    return False
+                self._seqs[device_id] = seq
             self._frames[device_id] = (time.time(), jpeg)
             self._lock.notify_all()
+            return True
 
     def mark_watched(self, device_id: int) -> None:
         with self._lock:

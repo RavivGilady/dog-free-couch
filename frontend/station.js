@@ -1,4 +1,4 @@
-/* Camera station: this browser tab *is* the agent.
+﻿/* Camera station: this browser tab *is* the agent.
  *
  * Same contract as agent.py -- detection happens where the camera is, and
  * only events, clips and (while someone is watching) frames go to the
@@ -48,7 +48,16 @@ const Station = (() => {
    * night leaves no trace at all, and "was it even running?" is the first
    * question any shared log has to answer. */
   const LOG_SUMMARY_SEC = 60;
-  const LIVE_MAX_FPS = 6;
+  // 0 = no cap: the live view goes as fast as the camera makes new frames
+  // and the previous upload finishes (see liveLoop).
+  const LIVE_MAX_FPS = 0;
+  // The live view is a preview, not the recording: a small frame uploads
+  // several times faster than a full-size one, and upload speed is what
+  // limits it. Frames go up a few at a time so the round trip to the server
+  // doesn't set the pace either.
+  const LIVE_MAX_WIDTH = 640;
+  const LIVE_JPEG_QUALITY = 0.5;
+  const LIVE_IN_FLIGHT = 3;
   const MAX_BOXES = 20;
   /* A clip is one MediaRecorder segment, so its pre-roll is however long the
    * segment has been running. Segments are recycled while nothing is
@@ -73,10 +82,17 @@ const Station = (() => {
   let dev = null; // {id, name} of the device this station drives
   let token = "";
   let stream = null;
-  let model = null;
+  const det = {
+    worker: null,
+    ready: false,
+    progress: -1,
+    pending: new Map(),
+    seq: 0,
+  };
   let video = null;
   let raw = null; // the frame as the camera gave it: snapshots, detection
-  let shown = null; // the same frame with zone and boxes drawn on: live view
+  let shown = null; // the newest frame with zone and boxes drawn on: live view
+  let overlay = null; // just the zone and boxes, on a transparent layer
   let settings = clone(DEFAULTS);
   let tracker = null;
   let recorder = null;
@@ -99,13 +115,14 @@ const Station = (() => {
 
   let status = blankStatus();
   let paused = false;
-  let constraints = null; // what start() asked the browser for, to reopen with
+  let videoWanted = null; // what start() asked the browser for, to reopen with
   let switching = false; // a pause or resume is in flight
 
   function blankStatus() {
     return {
       running: false,
       camera_ok: false,
+      audio_ok: false,
       dog_on_couch: false,
       dogs_in_frame: 0,
       persons_in_frame: 0,
@@ -125,7 +142,16 @@ const Station = (() => {
   }
 
   function snapshot() {
-    return { ...status, device: dev, running, phase, starting: !!phase };
+    return {
+      ...status,
+      device: dev,
+      running,
+      phase,
+      starting: !!phase,
+      // 0..1 while the model downloads, -1 when its size isn't known yet,
+      // null when there is nothing loading.
+      model_progress: det.worker && !det.ready ? det.progress : null,
+    };
   }
 
   /* ================= logs ================= */
@@ -470,7 +496,25 @@ const Station = (() => {
    * Lead-in is therefore up to pre_roll + 2s rather than exactly pre_roll.
    */
   function makeRecorder(mediaStream) {
+    // With a mic in the stream the codec string has to name an audio codec
+    // too: asking for "codecs=vp9" alone gets a video-only recording out of
+    // a stream that has sound in it, which is exactly the silent clip this
+    // is here to avoid. The video-only strings stay as the fallback for a
+    // station whose mic was refused, or a browser that won't do opus.
+    const hasAudio = mediaStream.getAudioTracks().length > 0;
+    // MP4 comes first because Telegram only plays H.264 MP4 inline; a webm
+    // arrives as a file attachment. Only Chrome 126+, Safari and recent Edge
+    // can record it, so webm stays as the fallback (Firefox, older browsers).
     const mime = [
+      ...(hasAudio ? ['video/mp4;codecs="avc1,mp4a.40.2"'] : []),
+      "video/mp4;codecs=avc1",
+      ...(hasAudio
+        ? [
+            'video/webm;codecs="vp9,opus"',
+            'video/webm;codecs="vp8,opus"',
+            "video/webm",
+          ]
+        : []),
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
       "video/webm",
@@ -494,6 +538,7 @@ const Station = (() => {
       rec = new MediaRecorder(mediaStream, {
         mimeType: mime,
         videoBitsPerSecond: 1500000,
+        audioBitsPerSecond: 96000,
       });
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size) chunks.push(e.data);
@@ -583,11 +628,21 @@ const Station = (() => {
 
   /* ================= drawing (service._annotate) ================= */
 
-  function annotate(boxes, zone) {
+  /* The boxes are drawn on a transparent layer and laid over the newest
+   * video frame whenever one is sent, so the live view runs at the camera's
+   * pace and not at the detector's. */
+  function compose() {
+    if (!shown.width || video.readyState < 2) return;
     const ctx = shown.getContext("2d");
-    ctx.drawImage(raw, 0, 0);
-    const w = shown.width;
-    const h = shown.height;
+    ctx.drawImage(video, 0, 0, shown.width, shown.height);
+    ctx.drawImage(overlay, 0, 0, shown.width, shown.height);
+  }
+
+  function annotate(boxes, zone) {
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    const w = overlay.width;
+    const h = overlay.height;
 
     if (zone.length >= 3) {
       ctx.beginPath();
@@ -629,6 +684,7 @@ const Station = (() => {
       ctx.fill();
       ctx.fillText("REC", w - 72, 28);
     }
+    compose();
   }
 
   /* ================= the loop (service._run) ================= */
@@ -648,7 +704,10 @@ const Station = (() => {
       frameGaps.push(started - last);
       if (frameGaps.length > 30) frameGaps.shift();
       const avg = frameGaps.reduce((a, b) => a + b, 0) / frameGaps.length;
-      status.fps = avg > 0 ? Math.round((1000 / avg) * 10) / 10 : 0;
+      status.detect_fps = avg > 0 ? Math.round((1000 / avg) * 10) / 10 : 0;
+      // Nobody watching means no live frames to measure: fall back to the
+      // detection rate, which is all the station is doing then.
+      if (!liveWanted) status.fps = status.detect_fps;
       last = started;
       recorder?.tick();
       if (nowSec() - lastSummary >= LOG_SUMMARY_SEC) {
@@ -681,15 +740,25 @@ const Station = (() => {
       return;
     }
     if (raw.width !== video.videoWidth || raw.height !== video.videoHeight) {
-      raw.width = shown.width = video.videoWidth;
-      raw.height = shown.height = video.videoHeight;
+      raw.width = overlay.width = video.videoWidth;
+      raw.height = overlay.height = video.videoHeight;
+      shown.width = Math.min(LIVE_MAX_WIDTH, video.videoWidth);
+      shown.height = Math.round(
+        (video.videoHeight * shown.width) / video.videoWidth,
+      );
     }
     const w = raw.width;
     const h = raw.height;
     raw.getContext("2d").drawImage(video, 0, 0, w, h);
 
-    const preds = await model.detect(raw, MAX_BOXES, CONFIDENCE);
     const zone = settings.zone.points;
+    if (!det.ready) {
+      // No model yet (or it failed): keep the camera and live view going.
+      publish({ camera_ok: true, zone_points: zone });
+      annotate([], zone);
+      return;
+    }
+    const preds = await detectRemote(raw);
     const threshold = settings.zone.overlap_threshold;
 
     const boxes = [];
@@ -915,10 +984,32 @@ const Station = (() => {
     }
   }
 
+  // The microphone goes into the clips, so it is asked for together with the
+  // camera -- the browser prompts for both at once. Refusing the mic refuses
+  // the whole call, though, and a station with no sound beats no station at
+  // all, so that drops back to video alone.
+  async function openStream() {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: videoWanted,
+        // The alarm is going off in the same room: processing meant for
+        // a voice call would gate it away as noise, and the alarm is
+        // half of what makes the clip worth hearing.
+        audio: { echoCancellation: false, noiseSuppression: false },
+      });
+    } catch (e) {
+      log(`no microphone (${e.name || e.message}); clips will be silent`);
+      return navigator.mediaDevices.getUserMedia({
+        video: videoWanted,
+        audio: false,
+      });
+    }
+  }
+
   async function resumeCamera() {
     switching = true;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      stream = await openStream();
       video.srcObject = stream;
       await video.play().catch(() => {});
       recorder = makeRecorder(stream);
@@ -936,27 +1027,69 @@ const Station = (() => {
   }
 
   async function liveLoop(gen) {
-    const interval = 1000 / LIVE_MAX_FPS;
+    const interval = LIVE_MAX_FPS ? 1000 / LIVE_MAX_FPS : 0;
+    const sentAt = [];
+    // Wait for the camera's next frame so an uncapped loop doesn't send the
+    // same picture twice; the timeout covers a hidden tab, where the
+    // callback may never fire.
+    const nextVideoFrame = () =>
+      video.requestVideoFrameCallback
+        ? new Promise((resolve) => {
+            const t = setTimeout(resolve, 200);
+            video.requestVideoFrameCallback(() => {
+              clearTimeout(t);
+              resolve();
+            });
+          })
+        : sleep(33);
+    let inFlight = 0;
+    let backoffUntil = 0;
+    const send = async (jpeg) => {
+      inFlight++;
+      try {
+        const res = await fetch("/api/agent/frame", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "image/jpeg",
+            // Uploads overlap, so they can land out of order; the server
+            // keeps only the newest.
+            "X-Frame-Seq": String(Math.floor(performance.timeOrigin + performance.now())),
+          },
+          body: jpeg,
+        });
+        if (res.ok && !(await res.json()).live_wanted) liveWanted = false;
+        // The rate the dashboard actually sees, over the last 30 frames.
+        sentAt.push(performance.now());
+        if (sentAt.length > 30) sentAt.shift();
+        if (sentAt.length > 1) {
+          const span = sentAt[sentAt.length - 1] - sentAt[0];
+          status.fps =
+            Math.round(((sentAt.length - 1) / (span / 1000)) * 10) / 10;
+        }
+      } catch (_) {
+        backoffUntil = performance.now() + 1000;
+      } finally {
+        inFlight--;
+      }
+    };
     while (running && gen === generation) {
       const started = performance.now();
       if (liveWanted && shown.width) {
+        if (inFlight >= LIVE_IN_FLIGHT || started < backoffUntil) {
+          await sleep(5);
+          continue;
+        }
         try {
-          const jpeg = await blobOf(shown, 0.75);
-          if (jpeg) {
-            const res = await fetch("/api/agent/frame", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "image/jpeg",
-              },
-              body: jpeg,
-            });
-            if (res.ok && !(await res.json()).live_wanted) liveWanted = false;
-          }
+          if (!LIVE_MAX_FPS) await nextVideoFrame();
+          compose();
+          const jpeg = await blobOf(shown, LIVE_JPEG_QUALITY);
+          if (jpeg) send(jpeg);
         } catch (_) {
           await sleep(1000);
         }
       }
+      if (!liveWanted) sentAt.length = 0;
       await sleep(
         Math.max(
           interval - (performance.now() - started),
@@ -968,62 +1101,111 @@ const Station = (() => {
 
   /* ================= start / stop ================= */
 
-  /* A blocked CDN is the likeliest way for a station to fail, and a
-   * blackholed request neither loads nor errors -- it simply never comes
-   * back. So every fetch here gets a deadline and says what it was waiting
-   * for, rather than leaving the page to wait forever. */
+  /* A blocked CDN is the likeliest way for the model to fail, and a blackholed
+   * request neither loads nor errors, so the load gets a deadline. */
   const LOAD_TIMEOUT_MS = 30000;
 
-  function withTimeout(promise, ms, what) {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `${what} did not arrive within ${Math.round(ms / 1000)}s. ` +
-                  "A camera station needs to download the detection model " +
-                  "once -- check this device's internet, or any blocker on " +
-                  "cdn.jsdelivr.net and storage.googleapis.com.",
-              ),
-            ),
-          ms,
-        ),
-      ),
-    ]);
-  }
+  /* The model lives in a worker (detector-worker.js), started in the
+   * background: the camera, the live view and the heartbeat come up without
+   * waiting for it, and a model that fails to download or load is reported
+   * and retried instead of taking the camera down with it. The worker
+   * outlives a stop, so pressing Start again is instant. */
+  const DETECTOR_RETRY_MS = 15000;
+  const NO_DETECTOR = "Detection isn't running yet";
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) return resolve();
-      const el = document.createElement("script");
-      el.src = src;
-      el.onload = () => resolve();
-      el.onerror = () => reject(new Error(`could not load ${src}`));
-      document.head.appendChild(el);
-    });
-  }
-
-  async function ensureModel() {
-    if (model) return model;
+  function startDetector(gen) {
+    if (det.worker) return; // loading, or already up
     const began = nowSec();
-    log("downloading the detection model");
-    await withTimeout(loadScript(TFJS_SRC), LOAD_TIMEOUT_MS, "TensorFlow.js");
-    await withTimeout(
-      loadScript(COCO_SRC),
-      LOAD_TIMEOUT_MS,
-      "the COCO-SSD code",
+    log("loading the detection model (in a worker)");
+    const worker = new Worker("/assets/detector-worker.js");
+    det.worker = worker;
+    det.ready = false;
+    det.progress = -1;
+    publish();
+
+    const giveUp = (why) => {
+      if (det.worker !== worker) return;
+      worker.terminate();
+      det.worker = null;
+      det.ready = false;
+      for (const p of det.pending.values()) p.reject(new Error(why));
+      det.pending.clear();
+      logError(`detection model: ${why}`);
+      if (running && gen === generation) {
+        publish({ last_error: `${NO_DETECTOR}: ${why}` });
+        setTimeout(() => {
+          if (running && gen === generation) startDetector(gen);
+        }, DETECTOR_RETRY_MS);
+      }
+    };
+    const timer = setTimeout(
+      () =>
+        giveUp(
+          "the model did not load within " +
+            `${Math.round(LOAD_TIMEOUT_MS / 1000)}s -- check this device's ` +
+            "internet, or any blocker on cdn.jsdelivr.net and " +
+            "storage.googleapis.com",
+        ),
+      LOAD_TIMEOUT_MS * 2,
     );
-    // lite_mobilenet_v2 is the small one: the closest thing to the agent's
-    // MobileNet-SSD, and the only sensible choice on a phone.
-    model = await withTimeout(
-      window.cocoSsd.load({ base: "lite_mobilenet_v2" }),
-      LOAD_TIMEOUT_MS,
-      "the detection model's weights",
-    );
-    log(`detection model ready in ${(nowSec() - began).toFixed(1)}s`);
-    return model;
+
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "ready") {
+        clearTimeout(timer);
+        det.ready = true;
+        publish();
+        log(
+          `detection model ready in ${(nowSec() - began).toFixed(1)}s ` +
+            `(${m.backend})`,
+        );
+        if ((status.last_error || "").startsWith(NO_DETECTOR))
+          publish({ last_error: null });
+      } else if (m.type === "progress") {
+        // Never claim 100% before the model is actually ready: the weights
+        // still have to be built into a graph after the last byte arrives.
+        det.progress = m.total ? Math.min(m.loaded / m.total, 0.99) : -1;
+        publish();
+      } else if (m.type === "error") {
+        clearTimeout(timer);
+        giveUp(m.message);
+      } else if (m.type === "result" || m.type === "failed") {
+        const p = det.pending.get(m.id);
+        det.pending.delete(m.id);
+        if (!p) return;
+        if (m.type === "result") p.resolve(m.preds);
+        else p.reject(new Error(m.message));
+      }
+    };
+    worker.onerror = (e) => {
+      clearTimeout(timer);
+      giveUp(e.message || "the detection worker crashed");
+    };
+    worker.postMessage({ type: "load", tfjs: TFJS_SRC, coco: COCO_SRC });
+  }
+
+  function detectRemote(canvas) {
+    return new Promise((resolve, reject) => {
+      const id = ++det.seq;
+      det.pending.set(id, { resolve, reject });
+      createImageBitmap(canvas)
+        .then((bitmap) =>
+          det.worker.postMessage(
+            {
+              type: "detect",
+              id,
+              bitmap,
+              maxBoxes: MAX_BOXES,
+              minScore: CONFIDENCE,
+            },
+            [bitmap],
+          ),
+        )
+        .catch((e) => {
+          det.pending.delete(id);
+          reject(e);
+        });
+    });
   }
 
   async function listCameras() {
@@ -1088,13 +1270,10 @@ const Station = (() => {
 
     try {
       setPhase("Waiting for permission to use the camera\u2026");
-      constraints = {
-        video: cameraId
-          ? { deviceId: { exact: cameraId } }
-          : { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      };
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      videoWanted = cameraId
+        ? { deviceId: { exact: cameraId } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 } };
+      stream = await openStream();
       video.srcObject = stream;
       await video.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
@@ -1103,6 +1282,12 @@ const Station = (() => {
         `camera open: ${track?.label || "unnamed"} ` +
           `${got.width || "?"}x${got.height || "?"}` +
           `${got.frameRate ? ` @ ${Math.round(got.frameRate)} fps` : ""}`,
+      );
+      const mic = stream.getAudioTracks()[0];
+      log(
+        mic
+          ? `microphone open: ${mic.label || "unnamed"}`
+          : "no microphone: clips will be silent",
       );
 
       setPhase("Registering this device as a camera\u2026");
@@ -1124,13 +1309,6 @@ const Station = (() => {
       }
       token = r.token;
       log("got a device token for this run");
-
-      setPhase(
-        model
-          ? "Starting detection\u2026"
-          : "Downloading the detection model (a few MB, once)\u2026",
-      );
-      await ensureModel();
     } catch (e) {
       log(`could not start: ${e.message}`);
       await stop();
@@ -1141,6 +1319,7 @@ const Station = (() => {
 
     raw = document.createElement("canvas");
     shown = document.createElement("canvas");
+    overlay = document.createElement("canvas");
     tracker = makeTracker();
     uploader = makeUploader(token);
     recorder = makeRecorder(stream);
@@ -1154,6 +1333,7 @@ const Station = (() => {
       running: true,
       started_at: nowSec(),
       camera_ok: true,
+      audio_ok: stream.getAudioTracks().length > 0,
       last_error: recorder
         ? null
         : "This browser can't record clips, so only snapshots are saved.",
@@ -1167,6 +1347,7 @@ const Station = (() => {
     } catch (_) {}
 
     const gen = generation;
+    startDetector(gen);
     detectLoop(gen);
     heartbeatLoop(gen);
     liveLoop(gen);
