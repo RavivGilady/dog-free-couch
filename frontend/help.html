@@ -40,8 +40,8 @@
           <li>Connect Telegram (optional, for alerts on your phone).</li>
         </ol>
         <p>
-          Nothing counts as &ldquo;on the couch&rdquo; until you draw the
-          zone, so step 2 matters.
+          Nothing counts as &ldquo;on the couch&rdquo; until you draw the zone,
+          so step 2 matters.
         </p>
 
         <h2 id="browser">Use a browser as the camera</h2>
@@ -66,18 +66,20 @@
         <h2 id="agent">Use a computer or Raspberry Pi</h2>
         <p>
           A small program, the <b>agent</b>, runs next to the camera and keeps
-          running in the background. In the dashboard open <b>Devices</b>, add
-          a camera and copy the command it shows.
+          running in the background. In the dashboard open <b>Devices</b>, add a
+          camera and copy the command it shows.
         </p>
         <h3>Linux and Raspberry Pi OS</h3>
         <p>Run the command on the Pi or computer. It looks like this:</p>
-        <pre class="cmd"><code id="help-install-cmd">curl -fsSL https://YOUR-SERVER/install.sh | bash -s -- --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
+        <pre
+          class="cmd"
+        ><code id="help-install-cmd">curl -fsSL https://YOUR-SERVER/install.sh | bash -s -- --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
         <p>
-          It installs what it needs, downloads the detection model, and sets
-          the agent up as a service that starts at boot, restarts if it stops,
-          and updates itself each time it starts. Add <code>--pi</code> for
-          the ribbon-cable Raspberry Pi camera (a USB webcam does not need
-          it). It takes a few minutes on a Pi. You can read the script at
+          It installs what it needs, downloads the detection model, and sets the
+          agent up as a service that starts at boot, restarts if it stops, and
+          updates itself each time it starts. Add <code>--pi</code> for the
+          ribbon-cable Raspberry Pi camera (a USB webcam does not need it). It
+          takes a few minutes on a Pi. You can read the script at
           <a href="/install.sh">/install.sh</a> before running it.
         </p>
         <p>
@@ -105,21 +107,19 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
         <p>
           On the Live tab press <b>Draw couch zone</b> and click the couch's
           corners on the picture, going around it. Drag a corner to move it;
-          double-click to remove it. The slider sets how much of the dog has
-          to be inside the zone before it counts. Press <b>Save zone</b>; the
+          double-click to remove it. The slider sets how much of the dog has to
+          be inside the zone before it counts. Press <b>Save zone</b>; the
           camera picks it up in a few seconds.
         </p>
-        <p>
-          If you move the camera, redraw the zone.
-        </p>
+        <p>If you move the camera, redraw the zone.</p>
 
         <h2 id="alarm">Alarm sound</h2>
         <p>
           Press <b>Test alarm on camera</b> on the Live tab. The sound plays
           from the device running the camera, not from the browser you are
-          using. On the Sound tab you can choose a built-in siren or record
-          your own voice; many dogs react better to that. In Settings you can
-          make it repeat while the dog stays on the couch.
+          using. On the Sound tab you can choose a built-in siren or record your
+          own voice; many dogs react better to that. In Settings you can make it
+          repeat while the dog stays on the couch.
         </p>
 
         <h2 id="telegram">Telegram alerts</h2>
@@ -131,7 +131,9 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
           <li>Open your new bot and send it any message.</li>
           <li>
             In a browser open
-            <code>https://api.telegram.org/bot&lt;YOUR_TOKEN&gt;/getUpdates</code>
+            <code
+              >https://api.telegram.org/bot&lt;YOUR_TOKEN&gt;/getUpdates</code
+            >
             and find <code>"chat":{"id": ...}</code>. That number is your chat
             id.
           </li>
@@ -150,8 +152,8 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
             dashboard on that device and press <b>Start camera here</b>.
           </li>
           <li>
-            <b>Agent:</b> it is not running or cannot reach the server. On a
-            Pi run <code>sudo systemctl status dog-free-couch</code>; on other
+            <b>Agent:</b> it is not running or cannot reach the server. On a Pi
+            run <code>sudo systemctl status dog-free-couch</code>; on other
             computers check that the terminal is still open.
           </li>
           <li>
@@ -160,7 +162,9 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
           </li>
         </ul>
 
-        <h3 id="no-signal">The picture is grey, frozen or says &ldquo;no signal&rdquo;</h3>
+        <h3 id="no-signal">
+          The picture is grey, frozen or says &ldquo;no signal&rdquo;
+        </h3>
         <p>
           The camera is found but is not delivering a picture. Common causes:
         </p>
@@ -178,31 +182,32 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
             camera, choose another one from the <b>Camera</b> list.
           </li>
           <li>
-            On Windows, the default way of opening the camera sometimes
-            returns a frozen placeholder image. <code>list_cameras.py</code>
-            also tests that and sets <code>backend_api: dshow</code> when it
-            helps.
+            On Windows, the default way of opening the camera sometimes returns
+            a frozen placeholder image. <code>list_cameras.py</code> also tests
+            that and sets <code>backend_api: dshow</code> when it helps.
           </li>
           <li>
             On a Raspberry Pi with the ribbon camera, install with
             <code>--pi</code> and check the cable is seated firmly.
           </li>
           <li>
-            Browser camera: check the browser has permission for the camera
-            (the camera icon in the address bar).
+            Browser camera: check the browser has permission for the camera (the
+            camera icon in the address bar).
           </li>
         </ul>
 
         <h3>The dog is on the couch but there is no alert</h3>
         <ul>
-          <li>Check that a couch zone is drawn and covers where the dog sits.</li>
           <li>
-            Lower the slider so less of the dog must be inside the zone.
+            Check that a couch zone is drawn and covers where the dog sits.
           </li>
-          <li>The picture needs light and the dog needs to be clearly visible.</li>
+          <li>Lower the slider so less of the dog must be inside the zone.</li>
           <li>
-            The Live tab shows <b>Dogs in frame</b>. If it stays at 0 the dog
-            is not being detected; try a different camera angle.
+            The picture needs light and the dog needs to be clearly visible.
+          </li>
+          <li>
+            The Live tab shows <b>Dogs in frame</b>. If it stays at 0 the dog is
+            not being detected; try a different camera angle.
           </li>
         </ul>
 
@@ -220,16 +225,21 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
 
         <h3>Telegram says it failed</h3>
         <ul>
-          <li>You must send your bot a message first, or it cannot message you.</li>
-          <li>Check the token and chat id for typos; the chat id is a number.</li>
+          <li>
+            You must send your bot a message first, or it cannot message you.
+          </li>
+          <li>
+            Check the token and chat id for typos; the chat id is a number.
+          </li>
         </ul>
 
         <h2 id="contact">Contact</h2>
         <p>
           Still stuck?
-          <!--support-->Email <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a>
-          and tell us the camera type, what you see on the Live tab and any
-          red message there.<!--/support-->
+          <!--support-->Email
+          <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a> and tell us
+          the camera type, what you see on the Live tab and any red message
+          there.<!--/support-->
         </p>
       </article>
     </div>
@@ -242,9 +252,15 @@ python agent.py --server https://YOUR-SERVER --token YOUR-TOKEN</code></pre>
     <script>
       // Show the commands with this server's real address in them.
       const el = document.getElementById("help-install-cmd");
-      if (el) el.textContent = el.textContent.split("https://YOUR-SERVER").join(location.origin);
+      if (el)
+        el.textContent = el.textContent
+          .split("https://YOUR-SERVER")
+          .join(location.origin);
       document.querySelectorAll("pre code").forEach((c) => {
-        if (c !== el) c.textContent = c.textContent.split("https://YOUR-SERVER").join(location.origin);
+        if (c !== el)
+          c.textContent = c.textContent
+            .split("https://YOUR-SERVER")
+            .join(location.origin);
       });
     </script>
   </body>

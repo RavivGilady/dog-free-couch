@@ -14,9 +14,9 @@ scrape_configs:
       - targets: ["server:8000"]
   - job_name: site
     metrics_path: /probe
-    params: {module: [https_2xx]}
+    params: { module: [https_2xx] }
     static_configs:
-      - targets: ["https://DOMAIN/readyz"]   # replace DOMAIN
+      - targets: ["https://DOMAIN/readyz"] # replace DOMAIN
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

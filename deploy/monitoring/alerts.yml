@@ -4,38 +4,43 @@ groups:
       - alert: SiteDown
         expr: probe_success{job="site"} == 0 or absent(probe_success{job="site"})
         for: 2m
-        labels: {severity: page}
-        annotations: {summary: "Site or its database/storage is failing /readyz"}
+        labels: { severity: page }
+        annotations:
+          { summary: "Site or its database/storage is failing /readyz" }
       - alert: ServerMetricsMissing
         expr: up{job="dfc"} == 0
         for: 2m
-        labels: {severity: page}
-        annotations: {summary: "Cannot scrape the server"}
+        labels: { severity: page }
+        annotations: { summary: "Cannot scrape the server" }
       - alert: Http5xxSpike
         expr: sum(rate(dfc_http_requests_total{status="5xx"}[5m])) / sum(rate(dfc_http_requests_total[5m])) > 0.05
         for: 5m
-        labels: {severity: page}
-        annotations: {summary: "More than 5% of requests are failing with 5xx"}
+        labels: { severity: page }
+        annotations:
+          { summary: "More than 5% of requests are failing with 5xx" }
       - alert: NoAgentHeartbeats
         expr: dfc_agents_total > 0 and dfc_agents_online == 0
         for: 10m
-        labels: {severity: warn}
-        annotations: {summary: "Cameras are registered but none has checked in for 10 minutes"}
+        labels: { severity: warn }
+        annotations:
+          {
+            summary: "Cameras are registered but none has checked in for 10 minutes",
+          }
       - alert: UploadFailures
         expr: increase(dfc_upload_failures_total[15m]) > 0
-        labels: {severity: warn}
-        annotations: {summary: "Saving agent uploads is failing"}
+        labels: { severity: warn }
+        annotations: { summary: "Saving agent uploads is failing" }
       - alert: DiskAlmostFull
         expr: dfc_disk_used_ratio > 0.8
         for: 10m
-        labels: {severity: warn}
-        annotations: {summary: "Data disk is more than 80% full"}
+        labels: { severity: warn }
+        annotations: { summary: "Data disk is more than 80% full" }
       - alert: CertExpiringSoon
         expr: probe_ssl_earliest_cert_expiry{job="site"} - time() < 14 * 86400
         for: 1h
-        labels: {severity: warn}
-        annotations: {summary: "TLS certificate expires in under 14 days"}
+        labels: { severity: warn }
+        annotations: { summary: "TLS certificate expires in under 14 days" }
       - alert: BackupStale
         expr: time() - dfc_backup_last_success_timestamp > 26 * 3600
-        labels: {severity: page}
-        annotations: {summary: "No successful backup in over 26 hours"}
+        labels: { severity: page }
+        annotations: { summary: "No successful backup in over 26 hours" }
