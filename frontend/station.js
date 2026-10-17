@@ -165,9 +165,11 @@ const Station = (() => {
    * is watching: a camera lost at 3am, a clip that never uploaded, the
    * model reloading. The buffer is a ring, so a station left running for
    * days costs a bounded amount of memory, and it survives stop() and
-   * restarts: a start that failed is exactly the run worth reading. It is
-   * never written to disk, and goes to the server only when "Share logs"
-   * is pressed on a dev run (see shareLogs in app.js).
+   * restarts: a start that failed is exactly the run worth reading.
+   *
+   * It stays in the tab: nothing uploads it and nothing writes it to disk,
+   * so reading it means being on the device with the camera, either in
+   * that console or by typing Station.logLines() into it.
    */
   const LOG_LIMIT = 1000;
   const logBuffer = [];
@@ -1419,9 +1421,8 @@ const Station = (() => {
     isRunning: () => running,
     deviceId: () => (running ? (dev?.id ?? null) : null),
     snapshot,
-    /* Read by the dashboard's "Share logs" button (dev runs only). A copy,
-     * so nothing outside here can edit the buffer, and plain data, so it
-     * goes straight into the request body. */
+    /* For reading the buffer from the station's own devtools console. A
+     * copy, so nothing outside here can edit it. */
     logLines: () => logBuffer.map((l) => ({ ...l })),
     logCount: () => logBuffer.length,
     onChange(fn) {

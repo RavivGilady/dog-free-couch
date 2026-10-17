@@ -270,7 +270,7 @@ What is different from the agent, and why:
 - **It needs https** (or `localhost`): no browser gives a page a camera
   otherwise. A deployment following _Deploy online_ below already has it.
 
-#### Station logs, and sharing them
+#### Station logs
 
 A station logs what it is doing to the browser console with a `[station]`
 prefix, and keeps the last 1000 lines in the tab: each start with the camera
@@ -282,18 +282,12 @@ minute, so a quiet night still shows the station was awake. The buffer
 survives **Stop camera** and restarts -- a start that failed is exactly the
 run worth reading.
 
-That matters because a station usually runs on the phone or laptop by the
-couch, whose console nobody is looking at. So on a **dev run** -- a server
-started with `python -m server`, or anything with `DEV_MODE=1` -- the
-Devices tab grows a **Share logs** button next to the station card. It posts
-the buffer to the server, which writes it as one JSON file under
-`data/station-logs/` (device, settings, last reported status, user agent and
-the lines), prints the path to the server's terminal, and keeps the 50 most
-recent reports.
-
-On a normal deployment the flag is off, the button is hidden, and the
-endpoint behind it does not exist -- so nothing a station logs leaves the
-tab unless you ask for it on a dev server.
+It stays in the tab. Nothing uploads it and nothing writes it to disk, so
+reading it means being on the device with the camera: open its devtools
+console, or type `Station.logLines()` there for the buffer as data. What
+reaches the server instead is the station's heartbeat, which is what the
+dashboard shows from anywhere -- frame rate, whether the camera is OK, the
+upload queue and the last error.
 
 ### Drawing the couch zone from the dashboard
 
@@ -355,7 +349,6 @@ Postgres + S3.
 | `PUBLIC_URL`                                | _(empty)_                   | This server's https address; Telegram then pushes bot messages to a webhook (without it the server polls) |
 | `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
 | `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
-| `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
 | `SUPPORT_EMAIL`                             | empty                       | Address behind the help pages' and dashboard's "Contact support" / "Send feedback" links; empty hides them |
 
 Logging, Sentry, health checks, `/metrics` and alert rules (`LOG_LEVEL`,

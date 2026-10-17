@@ -4,7 +4,6 @@ importantly -- that one user can never reach another user's data.
 Runs against a throwaway SQLite db and media dir; no camera, no network.
 """
 import io
-import json
 import shutil
 import struct
 import sys
@@ -366,71 +365,6 @@ def test_browser_camera_runs_on_the_same_agent_api():
         assert b.req("get", "/api/devices").get_json()["devices"][1]["kind"] == "agent"
         assert b.req("post", f"/api/devices/{agent_id}/browser-token").status_code == 400
         assert b.req("post", "/api/devices", json={"kind": "toaster"}).status_code == 400
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def test_station_logs_are_shared_only_on_a_dev_run():
-    """The "Share logs" button is developer tooling: on a normal deployment
-    the endpoint behind it isn't there at all."""
-    app, tmp = make_app()
-    try:
-        b = Browser(app, "a@x.io")
-        dev_id, _ = b.add_device("Laptop")
-        assert b.req("get", "/api/auth/me").get_json()["dev"] is False
-        r = b.req("post", f"/api/devices/{dev_id}/logs",
-                  json={"lines": [{"t": 1.0, "level": "info", "msg": "hi"}]})
-        assert r.status_code == 404
-        assert not (tmp / "station-logs").exists()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def test_station_logs_are_written_and_sanitized_in_dev_mode():
-    app, tmp = make_app(DEV_MODE=True)
-    try:
-        b = Browser(app, "a@x.io")
-        dev_id, _ = b.add_device("Laptop")
-        assert b.req("get", "/api/auth/me").get_json()["dev"] is True
-
-        lines = [{"t": 1.5, "level": "info", "msg": "camera open"},
-                 {"t": 2.0, "level": "error", "msg": "x" * 900},
-                 # Unknown level and a missing timestamp both degrade rather
-                 # than failing the whole report.
-                 {"level": "shout", "msg": "odd"}]
-        r = b.req("post", f"/api/devices/{dev_id}/logs",
-                  json={"lines": lines, "user_agent": "pytest",
-                        "extra": "ignored"})
-        assert r.status_code == 200, r.get_json()
-        body = r.get_json()
-        assert body["lines"] == 3
-
-        written = list((tmp / "station-logs").glob("*.json"))
-        assert [p.name for p in written] == [body["file"]]
-        report = json.loads(written[0].read_text(encoding="utf-8"))
-        assert report["device"] == {"id": dev_id, "name": "Laptop",
-                                   "kind": "agent"}
-        assert report["user"] == "a@x.io"
-        assert report["user_agent"] == "pytest"
-        assert "extra" not in report
-        assert report["lines"][0] == {"t": 1.5, "level": "info",
-                                      "msg": "camera open"}
-        assert len(report["lines"][1]["msg"]) == 500
-        assert report["lines"][2] == {"t": 0.0, "level": "info", "msg": "odd"}
-
-        # Nothing to say, and nonsense, are both refused.
-        assert b.req("post", f"/api/devices/{dev_id}/logs",
-                     json={"lines": []}).status_code == 400
-        assert b.req("post", f"/api/devices/{dev_id}/logs",
-                     json={"lines": "nope"}).status_code == 400
-        assert b.req("post", f"/api/devices/{dev_id}/logs",
-                     json={"lines": ["nope"]}).status_code == 400
-
-        # And one account cannot file logs against another's camera.
-        other = Browser(app, "b@x.io")
-        assert other.req("post", f"/api/devices/{dev_id}/logs",
-                         json={"lines": lines}).status_code == 404
-        assert len(list((tmp / "station-logs").glob("*.json"))) == 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
