@@ -340,21 +340,21 @@ the environment variables below. These hosts usually wipe the container
 disk on redeploy, so either attach a persistent volume at `/data` or use
 Postgres + S3.
 
-| Variable                                    | Default                     | Meaning                                                                        |
-| ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
-| `SECRET_KEY`                                | generated (dev only)        | Signs session cookies. **Required** in production.                             |
-| `DATABASE_URL`                              | `sqlite:////data/server.db` | e.g. `postgresql+psycopg://user:pw@host/db`                                    |
-| `STORAGE`                                   | `local`                     | `s3` to keep media in a bucket (AWS, Cloudflare R2, Backblaze B2, MinIO)       |
-| `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION` |                             | Bucket settings; credentials via `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
-| `MEDIA_DIR`                                 | `/data/media`               | Where media goes with `STORAGE=local`                                          |
-| `ALLOW_SIGNUP`                              | `1`                         | `0` closes registration once your household has accounts                       |
-| `RETENTION_DAYS`                            | `30`                        | Events and clips older than this are deleted; `0` keeps forever                |
-| `TRUST_PROXY`                               | `0`                         | `1` behind a reverse proxy / PaaS router (real client IPs, https)              |
-| `TELEGRAM_BOT_TOKEN`                        | _(empty)_                   | One shared bot for all users: each links their chat with **Connect Telegram** in Settings |
-| `PUBLIC_URL`                                | _(empty)_                   | This server's https address; Telegram then pushes bot messages to a webhook (without it the server polls) |
-| `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                     |
-| `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                   |
-| `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server` |
+| Variable                                    | Default                     | Meaning                                                                                                    |
+| ------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `SECRET_KEY`                                | generated (dev only)        | Signs session cookies. **Required** in production.                                                         |
+| `DATABASE_URL`                              | `sqlite:////data/server.db` | e.g. `postgresql+psycopg://user:pw@host/db`                                                                |
+| `STORAGE`                                   | `local`                     | `s3` to keep media in a bucket (AWS, Cloudflare R2, Backblaze B2, MinIO)                                   |
+| `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_REGION` |                             | Bucket settings; credentials via `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`                             |
+| `MEDIA_DIR`                                 | `/data/media`               | Where media goes with `STORAGE=local`                                                                      |
+| `ALLOW_SIGNUP`                              | `1`                         | `0` closes registration once your household has accounts                                                   |
+| `RETENTION_DAYS`                            | `30`                        | Events and clips older than this are deleted; `0` keeps forever                                            |
+| `TRUST_PROXY`                               | `0`                         | `1` behind a reverse proxy / PaaS router (real client IPs, https)                                          |
+| `TELEGRAM_BOT_TOKEN`                        | _(empty)_                   | One shared bot for all users: each links their chat with **Connect Telegram** in Settings                  |
+| `PUBLIC_URL`                                | _(empty)_                   | This server's https address; Telegram then pushes bot messages to a webhook (without it the server polls)  |
+| `SECURE_COOKIES`                            | `0`                         | `1` whenever the site is served over HTTPS                                                                 |
+| `MAX_UPLOAD_MB`                             | `200`                       | Largest clip upload accepted                                                                               |
+| `DEV_MODE`                                  | `0`                         | Developer-only extras (the station's **Share logs** button). On automatically under `python -m server`     |
 | `SUPPORT_EMAIL`                             | empty                       | Address behind the help pages' and dashboard's "Contact support" / "Send feedback" links; empty hides them |
 
 Logging, Sentry, health checks, `/metrics` and alert rules (`LOG_LEVEL`,
@@ -405,7 +405,7 @@ Then in `config.yaml`:
 ```yaml
 audio:
   enabled: true
-  device:          # empty = system default, or an index/name from the list
+  device: # empty = system default, or an index/name from the list
   sample_rate: 44100
   channels: 1
 ```

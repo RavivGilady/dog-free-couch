@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
     logging: &logging
       driver: json-file
-      options: {max-size: "10m", max-file: "5"}   # the disk cannot fill with logs
+      options: { max-size: "10m", max-file: "5" } # the disk cannot fill with logs
     environment:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       TRUST_PROXY: "1"
@@ -25,7 +25,13 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
     healthcheck:
-      test: ["CMD", "python", "-c", "import os, urllib.request as u; u.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8000'), timeout=3)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request as u; u.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT', '8000'), timeout=3)",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

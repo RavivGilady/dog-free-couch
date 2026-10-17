@@ -1299,7 +1299,11 @@ async function loadSettings() {
   $("#tg-chat").value = tg.chat_id || "";
   $("#tg-photo").checked = tg.send_photo;
   $("#tg-video").checked = tg.send_video;
-  onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
+  onbTelegram = !!(
+    tg.enabled &&
+    (tg.bot_token_set || tg.shared_bot) &&
+    tg.chat_id
+  );
   renderOnboarding();
   $("#tg-token-hint").textContent = tg.bot_token_set
     ? `currently ${tg.bot_token_hint}`
@@ -1517,7 +1521,11 @@ function setOnb(name, on) {
 async function loadOnboardingTelegram() {
   try {
     const tg = await api("/api/me/telegram");
-    onbTelegram = !!(tg.enabled && (tg.bot_token_set || tg.shared_bot) && tg.chat_id);
+    onbTelegram = !!(
+      tg.enabled &&
+      (tg.bot_token_set || tg.shared_bot) &&
+      tg.chat_id
+    );
   } catch (_) {}
   renderOnboarding();
 }
@@ -1529,8 +1537,10 @@ function onbSteps() {
   // from its own calibration.
   const hasZone = devices.some(
     (x) =>
-      (x.settings?.zone?.points?.length ? x.settings.zone.points : x.status?.zone_points || [])
-        .length >= 3,
+      (x.settings?.zone?.points?.length
+        ? x.settings.zone.points
+        : x.status?.zone_points || []
+      ).length >= 3,
   );
   return [
     {
